@@ -65,7 +65,7 @@ function EditorDemo() {
     triggers: [trigger("/", { items: "slash" }), trigger("@", { items: mentionItems })],
   })
   return (
-    <section className="grid items-start gap-6 lg:grid-cols-2">
+    <section className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="flex flex-col gap-2">
         <h2 className="text-sm font-medium">Prompt editor</h2>
         <PromptEditor editor={editor} />

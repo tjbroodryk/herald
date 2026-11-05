@@ -24,7 +24,7 @@ import type {
   ToolbarItem,
   TriggerState,
 } from "@herald/core"
-import { FIELD_TYPES, type Field, type FieldType } from "@herald/agent"
+import { FIELD_TYPES, type Field, type FieldShape, type FieldType } from "@herald/agent"
 import { markdown } from "@herald/markdown"
 
 // Headless: state and behaviour for building a Herald editor UI, no markup and no styles.
@@ -332,24 +332,75 @@ function useMenu(
 }
 
 /** State for an editor of typed fields (the `inputs` and `outputShape` blocks). */
-export function useFields({ node, update }: BlockViewProps) {
+/**
+ * Where a field sits in the tree: indexes into `fields`, with "items" stepping into an array's item shape.
+ * `[2, "items", 0]` is the first field of the objects in the third field's array.
+ */
+export type FieldPath = (number | "items")[]
+
+export interface FieldsApi {
+  fields: Field[]
+  types: FieldType[]
+  /** Changes a field or an array's item shape. Switching type adds or drops `fields`/`items` to match. */
+  patch(path: FieldPath, change: Partial<Field>): void
+  /** Adds a field to the object at `path` (`[]` for the top level). */
+  add(path: FieldPath): void
+  remove(path: FieldPath): void
+}
+
+/** State for an editor of typed fields (the `inputs` and `outputShape` blocks), nested to any depth. */
+export function useFields({ node, update }: BlockViewProps): FieldsApi {
   const incoming = (Array.isArray(node.attrs?.fields) ? node.attrs.fields : []) as unknown as Field[]
   // local copy so typing isn't reset while the change round-trips through the document
   const [fields, setFields] = useState(incoming)
   const key = JSON.stringify(incoming)
   useEffect(() => setFields(incoming), [key])
 
-  const write = (next: Field[]) => {
+  const edit = (path: FieldPath, fn: (shape: FieldShape) => FieldShape) => {
+    const next = (updateAt({ type: "object", fields }, path, fn).fields ?? []) as Field[]
     setFields(next)
     update({ ...node, attrs: { ...node.attrs, fields: next as never } })
   }
   return {
     fields,
     types: FIELD_TYPES,
-    patch: (i: number, change: Partial<Field>) => write(fields.map((f, j) => (j === i ? { ...f, ...change } : f))),
-    add: () => write([...fields, { name: `field_${fields.length + 1}`, type: "string" as FieldType }]),
-    remove: (i: number) => write(fields.filter((_, j) => j !== i)),
+    patch: (path, change) => edit(path, (shape) => withType({ ...shape, ...change })),
+    add: (path) =>
+      edit(path, (shape) => {
+        const list = shape.fields ?? []
+        return { ...shape, fields: [...list, { name: `field_${list.length + 1}`, type: "string" }] }
+      }),
+    remove: (path) => {
+      const index = path.at(-1) as number
+      edit(path.slice(0, -1), (shape) => ({ ...shape, fields: (shape.fields ?? []).filter((_, i) => i !== index) }))
+    },
   }
+}
+
+function updateAt(shape: FieldShape, path: FieldPath, fn: (shape: FieldShape) => FieldShape): FieldShape {
+  const [head, ...rest] = path
+  if (head === undefined) {
+    return fn(shape)
+  }
+  if (head === "items") {
+    return { ...shape, items: updateAt(shape.items ?? { type: "string" }, rest, fn) }
+  }
+  return {
+    ...shape,
+    fields: (shape.fields ?? []).map((f, i) => (i === head ? (updateAt(f, rest, fn) as Field) : f)),
+  }
+}
+
+// keep children consistent with the type: objects have fields, arrays have an item shape, scalars have neither
+function withType<S extends FieldShape>(shape: S): S {
+  const { fields, items, ...rest } = shape
+  if (shape.type === "object") {
+    return { ...rest, fields: fields ?? [] } as S
+  }
+  if (shape.type === "array") {
+    return { ...rest, items: items ?? { type: "string" } } as S
+  }
+  return rest as S
 }
 
 export const INSPECTOR_TABS = ["prompt", "json", "markdown", "collected", "diagnostics"] as const

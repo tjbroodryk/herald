@@ -2,10 +2,16 @@ import { find, type Diagnostic, type HeraldNode, type JSONValue, type MentionKin
 
 export type FieldType = "string" | "number" | "boolean" | "object" | "array"
 
-export interface Field {
-  name: string
+/** A value's shape: objects have `fields`, arrays have the shape of their `items`. */
+export interface FieldShape {
   type: FieldType
   description?: string
+  fields?: Field[]
+  items?: FieldShape
+}
+
+export interface Field extends FieldShape {
+  name: string
   /** Defaults to true. */
   required?: boolean
 }
@@ -17,20 +23,40 @@ export const FIELD_TYPES: FieldType[] = ["string", "number", "boolean", "object"
 const fieldsOf = (node: HeraldNode): Field[] =>
   Array.isArray(node.attrs?.fields) ? (node.attrs.fields as unknown as Field[]) : []
 
-// shortcut: fields are one level deep (no nested object shapes); add `fields` on object/array fields when needed.
+/** An object schema for a list of fields, nested to any depth. */
 export function fieldsToJsonSchema(fields: Field[]): JSONSchema {
   return {
     type: "object",
-    properties: Object.fromEntries(
-      fields.map((f) => [f.name, { type: f.type, ...(f.description ? { description: f.description } : {}) }]),
-    ),
+    properties: Object.fromEntries(fields.map((f) => [f.name, shapeToJsonSchema(f)])),
     required: fields.filter((f) => f.required !== false).map((f) => f.name),
     additionalProperties: false,
   }
 }
 
-const describe = (f: Field) =>
-  `- \`${f.name}\` (${f.type}${f.required === false ? ", optional" : ""})${f.description ? `: ${f.description}` : ""}`
+export function shapeToJsonSchema(shape: FieldShape): JSONSchema {
+  const description: JSONSchema = shape.description ? { description: shape.description } : {}
+  if (shape.type === "object") {
+    return { ...fieldsToJsonSchema(shape.fields ?? []), ...description }
+  }
+  if (shape.type === "array") {
+    return { type: "array", items: shapeToJsonSchema(shape.items ?? { type: "string" }), ...description }
+  }
+  return { type: shape.type, ...description }
+}
+
+const typeLabel = (s: FieldShape): string => (s.type === "array" ? `array of ${typeLabel(s.items ?? { type: "string" })}` : s.type)
+
+// one bullet per field, nested fields indented under their parent
+function describe(fields: Field[], depth = 0): string[] {
+  const pad = "  ".repeat(depth)
+  return fields.flatMap((f) => [
+    `${pad}- \`${f.name}\` (${typeLabel(f)}${f.required === false ? ", optional" : ""})${f.description ? `: ${f.description}` : ""}`,
+    ...describe(childFields(f), depth + 1),
+  ])
+}
+
+const childFields = (s: FieldShape): Field[] =>
+  s.type === "object" ? (s.fields ?? []) : s.type === "array" && s.items ? childFields(s.items) : []
 
 function duplicates(doc: HeraldNode, type: string): Diagnostic[] {
   return find(doc, type)
@@ -70,7 +96,7 @@ export function agentInputs(options: { color?: string } = {}): AgentInputsPlugin
           const fields = fieldsOf(node)
           ctx.collect("inputs", fieldsToJsonSchema(fields))
           if (fields.length) {
-            ctx.hoist("header", `You are given these inputs as JSON:\n${fields.map(describe).join("\n")}`)
+            ctx.hoist("header", `You are given these inputs as JSON:\n${describe(fields).join("\n")}`)
           }
           return ""
         },
@@ -100,20 +126,34 @@ export function agentInputs(options: { color?: string } = {}): AgentInputsPlugin
 
 function validateInputs(doc: HeraldNode, values: Record<string, unknown>): string[] {
   const errors: string[] = []
-  for (const f of inputFields(doc)) {
-    const v = values[f.name]
-    if (v === undefined) {
+  checkFields(inputFields(doc), values, "", errors)
+  return errors
+}
+
+function checkFields(fields: Field[], value: Record<string, unknown>, path: string, errors: string[]) {
+  for (const f of fields) {
+    const at = path ? `${path}.${f.name}` : f.name
+    if (value[f.name] === undefined) {
       if (f.required !== false) {
-        errors.push(`${f.name} is required`)
+        errors.push(`${at} is required`)
       }
       continue
     }
-    const actual = Array.isArray(v) ? "array" : v === null ? "null" : typeof v
-    if (actual !== f.type) {
-      errors.push(`${f.name} should be ${f.type}, got ${actual}`)
-    }
+    checkShape(f, value[f.name], at, errors)
   }
-  return errors
+}
+
+function checkShape(shape: FieldShape, value: unknown, path: string, errors: string[]) {
+  const actual = Array.isArray(value) ? "array" : value === null ? "null" : typeof value
+  if (actual !== shape.type) {
+    errors.push(`${path} should be ${shape.type}, got ${actual}`)
+    return
+  }
+  if (shape.type === "object") {
+    checkFields(shape.fields ?? [], value as Record<string, unknown>, path, errors)
+  } else if (shape.type === "array" && shape.items) {
+    ;(value as unknown[]).forEach((item, i) => checkShape(shape.items!, item, `${path}[${i}]`, errors))
+  }
 }
 
 export interface OutputShapePlugin extends Plugin {

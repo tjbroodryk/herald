@@ -209,6 +209,8 @@
   .herald-field input.herald-field-name { font-family: var(--herald-mono); width: 9em; }
   .herald-field-description { flex: 1; min-width: 8em; }
   .herald-field-required { display: flex; align-items: center; gap: 4px; color: var(--herald-muted); }
+  .herald-field-of { color: var(--herald-muted); }
+  .herald-field-children { margin: 0 0 6px 10px; padding-left: 12px; border-left: 1px solid var(--herald-border); }
   .herald-field button,
   .herald-block-add {
     font: inherit;
