@@ -11,6 +11,8 @@ export {
   type MentionAttrs,
   type MentionKind,
   type NodeCompiler,
+  PasteMime,
+  type PasteRule,
   type NodeDef,
   type Plugin,
   type SuggestionItem,
@@ -30,4 +32,4 @@ export { normalize } from "./normalize"
 // used by @herald/markdown; not part of the documented API
 export { isInline, sameMark, sortMarks } from "./normalize"
 export { assertDoc, HeraldParseError, json, type Codec } from "./codec"
-export { mentionKind, mentions, section, starterKit, type MentionKindHandle } from "./plugins"
+export { mentionKind, mentions, section, starterKit, tables, type MentionKindHandle } from "./plugins"

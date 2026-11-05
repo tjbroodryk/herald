@@ -210,6 +210,7 @@ export function usePromptEditor(
         root.render(<View node={node} kind={schema.mentionKinds.get(String(node.attrs?.kind))} />)
         return () => unmountLater(root)
       },
+      onPaste: (data) => schema.parsePaste(data),
       renderBlock: (node, target, update) => {
         const View = views.block?.[node.type] ?? set().blocks[node.type] ?? set().blocks.default
         const root = createRoot(target)

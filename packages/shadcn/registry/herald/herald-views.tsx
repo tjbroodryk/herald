@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react"
 import { NodeType } from "@herald/core"
-import { useFields, type BlockViewProps, type FieldPath, type FieldsApi, type InlineViewProps, type ViewSet } from "@herald/react"
-import { FieldType, type Field } from "@herald/agent"
+import { DocView, useFields, type BlockViewProps, type FieldPath, type FieldsApi, type InlineViewProps, type ViewSet } from "@herald/react"
+import { AgentNodeType, FieldType, type Field } from "@herald/agent"
 import { cn } from "@/lib/utils"
 
 export function MentionChip({ node, kind }: InlineViewProps) {
@@ -144,5 +144,35 @@ export function JsonBlock({ node }: BlockViewProps) {
 
 export const heraldViews: ViewSet = {
   inline: MentionChip,
-  blocks: { default: JsonBlock, inputs: FieldsBlock, outputShape: FieldsBlock },
+  blocks: {
+    default: JsonBlock,
+    [AgentNodeType.Inputs]: FieldsBlock,
+    [AgentNodeType.OutputShape]: FieldsBlock,
+    [NodeType.Table]: TablePreview,
+  },
+}
+
+/** Typography for rendered docs (DocView, table previews): your theme's tokens via Tailwind's arbitrary variants. */
+export const docViewClassName = cn(
+  "text-sm leading-relaxed [&>:first-child]:mt-0 [&>:last-child]:mb-0",
+  "[&_p]:my-1.5 [&_h1]:my-2 [&_h1]:text-xl [&_h1]:font-semibold [&_h2]:my-2 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:font-semibold",
+  "[&_ul]:my-1.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1.5 [&_ol]:list-decimal [&_ol]:pl-5",
+  "[&_code]:rounded-sm [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-[0.85em]",
+  "[&_pre]:my-1.5 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0",
+  "[&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_a]:text-primary [&_a]:underline [&_hr]:my-3",
+  "[&_[data-herald-block]]:my-1.5 [&_[data-herald-block]]:border-l-[3px] [&_[data-herald-block]]:border-primary [&_[data-herald-block]]:pl-3",
+  "[&_table]:my-1.5 [&_table]:w-full [&_table]:border-collapse [&_table]:overflow-hidden [&_table]:rounded-md",
+  "[&_th]:border [&_th]:bg-muted [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium",
+  "[&_td]:border [&_td]:px-3 [&_td]:py-1.5 [&_td]:align-top",
+)
+
+/** A table drawn the way DocView draws it; clicking it in the editor shows its markdown for editing. */
+export function TablePreview({ node }: BlockViewProps) {
+  return (
+    <DocView
+      doc={{ type: NodeType.Doc, content: [node] }}
+      views={heraldViews}
+      className={cn(docViewClassName, "my-1 cursor-text [&_table]:hover:ring-1 [&_table]:hover:ring-ring")}
+    />
+  )
 }

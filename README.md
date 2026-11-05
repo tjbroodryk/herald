@@ -12,6 +12,7 @@ Not published yet. To try it, clone the repo and run the playground (see Develop
 |---|---|---|
 | `packages/core` | JSON model, plugins, `compile`, traversal, JSON codec, the `EditorAdapter` interface | nothing |
 | `packages/markdown` | markdown codec, parser, serializer | core, `@lezer/markdown` |
+| `packages/paste` | paste plugins: `htmlPaste`, `markdownPaste`, `plainTextPaste` | core, markdown |
 | `packages/agent` | `agentInputs`, `outputShape`, `toolKind` | core |
 | `packages/codemirror` | the CodeMirror editor adapter | core, markdown, CodeMirror (peer) |
 | `packages/react` | headless hooks: `useEditor`, `usePromptEditor`, `useFields`, `useInspector`, `DocView` | core, markdown, agent, React (peer) |
@@ -121,6 +122,37 @@ Any node type without its own syntax gets one of these forms, so a custom node r
 
 One departure from CommonMark: every newline inside a paragraph is a line break (`hardBreak`), not a space. A prompt keeps the lines the person typed.
 
+## Tables
+
+Markdown tables (GitHub's pipe syntax, with `:---:` alignment) are built in. In the JSON they have TipTap's shape (`table` > `tableRow` > `tableHeader`/`tableCell` > `paragraph`), so existing TipTap tables load as they are. Cells hold inline content, so mentions, code and bold work inside them.
+
+```md
+| Amount | Decision | Who |
+| :--- | :---: | --- |
+| over $500 | `escalate` | @[Ana Ruiz](user:u_ana) |
+```
+
+- In the editor a table shows rendered. Click into it (or arrow into it) and its markdown shows for editing; move out and it renders again.
+- `tables()` adds a "Table" entry to the `/` menu.
+- Tables compile to a markdown table, or in `CompileMode.Plain` to one line per row with cells separated by ` | `.
+- Markdown cells are one line, so normalize puts each cell on one line, makes the first row the header, pads rows to the widest one, and drops TipTap's colspan/rowspan/colwidth.
+
+## Paste
+
+Which clipboard formats become document content is up to you: paste formats are plugins in `@herald/paste`, listed in priority order. The first one that produces content wins; with none, the editor pastes as it normally would (CodeMirror inserts the text as typed, which is markdown).
+
+```ts
+import { htmlPaste, markdownPaste, plainTextPaste } from "@herald/paste"
+
+createSchema([starterKit(), tables(), htmlPaste(), markdownPaste()]) // rich text first, then text as markdown
+createSchema([starterKit(), plainTextPaste()])                       // text only, markdown characters kept literal
+```
+
+- `htmlPaste()` converts copied HTML from web pages, Google Docs, Word and Notion: headings, lists, links (http, https and mailto only), bold, italic, strike, code, quotes and tables. HTML with no structure, such as styled spans copied from a code editor, is passed to the next rule.
+- `markdownPaste()` reads pasted text as markdown.
+- `plainTextPaste()` inserts text literally; blank lines separate paragraphs.
+- Write your own: a plugin with `paste: [{ mime, parse(data) }]`, where `parse` returns nodes or null to pass.
+
 ## React: one engine, three ways to render it
 
 All three share the same editor setup:
@@ -203,8 +235,6 @@ const editor = useEditor({
 - Bold, italic and strike can't open next to punctuation inside a word in markdown (`a**-b**`), so that case doesn't survive a markdown round trip. Normal word-boundary formatting does.
 - Unknown marks are kept in JSON but dropped from markdown.
 - A `:::` directive inside a list item or blockquote isn't supported; put the list inside the directive.
-- Pasting from a web page or Google Docs pastes plain text; only pasted markdown keeps its formatting.
-- No tables yet.
 - Only the CodeMirror adapter exists. `EditorAdapter` in core is the interface a ProseMirror adapter would implement.
 
 ## Developing

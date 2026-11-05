@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react"
 import { NodeType } from "@herald/core"
-import { useFields, type BlockViewProps, type FieldPath, type FieldsApi, type InlineViewProps, type ViewSet } from "@herald/react"
-import { FieldType, type Field } from "@herald/agent"
+import { DocView, useFields, type BlockViewProps, type FieldPath, type FieldsApi, type InlineViewProps, type ViewSet } from "@herald/react"
+import { AgentNodeType, FieldType, type Field } from "@herald/agent"
 
 export function MentionChip({ node, kind }: InlineViewProps) {
   const label = String(node.attrs?.label ?? node.attrs?.id ?? node.type)
@@ -120,5 +120,15 @@ export function JsonBlock({ node }: BlockViewProps) {
 
 export const views: ViewSet = {
   inline: MentionChip,
-  blocks: { default: JsonBlock, inputs: FieldsBlock, outputShape: FieldsBlock },
+  blocks: {
+    default: JsonBlock,
+    [AgentNodeType.Inputs]: FieldsBlock,
+    [AgentNodeType.OutputShape]: FieldsBlock,
+    [NodeType.Table]: TablePreview,
+  },
+}
+
+/** A table drawn the way DocView draws it; clicking it in the editor shows its markdown for editing. */
+export function TablePreview({ node }: BlockViewProps) {
+  return <DocView doc={{ type: NodeType.Doc, content: [node] }} views={views} className="herald-doc herald-table-preview" />
 }

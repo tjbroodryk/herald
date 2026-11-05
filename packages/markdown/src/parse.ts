@@ -3,6 +3,7 @@ import {
   EditorPart,
   MarkType,
   NodeType,
+  TableAlign,
   normalize,
   type Attrs,
   type HeraldDoc,
@@ -26,6 +27,8 @@ export const SpanKind = {
   Atom: "atom",
   /** A top-level block, the unit drag-and-drop moves. */
   Block: "block",
+  /** A block drawn as its rendered node (a table) until the cursor is in `reveal`; then its source shows. */
+  Preview: "preview",
 } as const
 export type SpanKind = (typeof SpanKind)[keyof typeof SpanKind]
 
@@ -42,6 +45,7 @@ export type Span =
   | { kind: typeof SpanKind.Atom; from: number; to: number; node: HeraldNode; block: boolean }
   /** A top-level block: the unit that drag-and-drop moves. */
   | { kind: typeof SpanKind.Block; from: number; to: number; node: HeraldNode }
+  | { kind: typeof SpanKind.Preview; from: number; to: number; node: HeraldNode; reveal: Range }
 
 export interface ParseResult {
   doc: HeraldDoc
@@ -117,6 +121,69 @@ class Converter {
     }
   }
 
+  private inTable = false
+
+  private table(n: SyntaxNode): HeraldNode {
+    const delimiter = n.getChild("TableDelimiter")
+    const aligns = delimiter
+      ? this.slice(delimiter.from, delimiter.to)
+          .trim()
+          .replace(/^\||\|$/g, "")
+          .split("|")
+          .map((spec): TableAlign | undefined => {
+            const s = spec.trim()
+            const left = s.startsWith(":")
+            const right = s.endsWith(":")
+            return left && right ? TableAlign.Center : left ? TableAlign.Left : right ? TableAlign.Right : undefined
+          })
+      : []
+    this.inTable = true
+    const rows = [...n.getChildren("TableHeader"), ...n.getChildren("TableRow")].map((row, r) => ({
+      type: NodeType.TableRow,
+      content: this.tableCells(row).map((inline, i) => ({
+        type: r === 0 ? NodeType.TableHeader : NodeType.TableCell,
+        ...(aligns[i] ? { attrs: { align: aligns[i]! } } : {}),
+        content: [{ type: NodeType.Paragraph, content: inline }],
+      })),
+    }))
+    this.inTable = false
+    const node = normalize({ type: NodeType.Table, content: rows })
+    const range = { from: n.from, to: n.to }
+    this.span({ kind: SpanKind.Lines, ...range, key: EditorPart.Table })
+    this.span({ kind: SpanKind.Preview, ...range, node, reveal: range })
+    if (delimiter) {
+      this.span({ kind: SpanKind.Style, from: delimiter.from, to: delimiter.to, key: EditorPart.Syntax })
+    }
+    return node
+  }
+
+  /** A row's cells by column. Empty cells have no syntax node, so columns come from the pipe positions. */
+  private tableCells(row: SyntaxNode): HeraldNode[][] {
+    const pipes = row.getChildren("TableDelimiter")
+    for (const p of pipes) {
+      this.span({ kind: SpanKind.Style, from: p.from, to: p.to, key: EditorPart.Syntax })
+    }
+    const segments: Range[] = []
+    let start = row.from
+    for (const p of pipes) {
+      segments.push({ from: start, to: p.from })
+      start = p.to
+    }
+    segments.push({ from: start, to: row.to })
+    // a leading or trailing pipe leaves an empty segment outside the table
+    if (pipes.length && !this.slice(row.from, pipes[0]!.from).trim()) {
+      segments.shift()
+    }
+    if (pipes.length && !this.slice(pipes.at(-1)!.to, row.to).trim()) {
+      segments.pop()
+    }
+    const cells = row.getChildren("TableCell")
+    return segments.map((seg) => {
+      const cell = cells.find((c) => c.from >= seg.from && c.to <= seg.to)
+      return cell ? this.inline(cell, []) : []
+    })
+  }
+
   blocks(parent: SyntaxNode): HeraldNode[] {
     const out: HeraldNode[] = []
     for (let c = parent.firstChild; c; c = c.nextSibling) {
@@ -177,6 +244,8 @@ class Converter {
         return { type: NodeType.HorizontalRule }
       case "Directive":
         return this.directive(n)
+      case "Table":
+        return this.table(n)
       case "HTMLBlock":
       case "LinkReference":
       case "CommentBlock":
@@ -303,6 +372,10 @@ class Converter {
         this.span({ kind: SpanKind.Style, from: c.from, to: c.to, key: EditorPart.Code })
         this.hideChildren(c, ["CodeMark"])
         let code = this.slice(open.to, close.from).replace(/\n/g, " ")
+        if (this.inTable) {
+          // inside a table, a pipe in code is written \| so it doesn't end the cell
+          code = code.replace(/\\\|/g, "|")
+        }
         if (code.length > 1 && code.startsWith(" ") && code.endsWith(" ") && code.trim()) {
           code = code.slice(1, -1)
         }

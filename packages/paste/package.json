@@ -1,0 +1,28 @@
+{
+  "name": "@herald/paste",
+  "version": "0.1.0",
+  "description": "Paste plugins for Herald: choose which clipboard formats (HTML, markdown, plain text) become document content.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tjbroodryk/herald.git",
+    "directory": "packages/paste"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && NODE_ENV=production bun build src/index.ts --outdir dist --format esm --target browser --packages external --external '@herald/*' && tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@herald/core": "workspace:*",
+    "@herald/markdown": "workspace:*"
+  }
+}

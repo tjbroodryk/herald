@@ -1,6 +1,6 @@
 import { isInline } from "./normalize"
 import type { MentionAttrs, NodeCompiler, Schema } from "./schema"
-import { DiagnosticCode, MarkType, NodeType, type Diagnostic, type HeraldDoc, type HeraldNode } from "./types"
+import { DiagnosticCode, MarkType, NodeType, TableAlign, type Diagnostic, type HeraldDoc, type HeraldNode } from "./types"
 
 export const CompileMode = {
   /** Keeps formatting as markdown: headings, bold, lists, code fences. */
@@ -262,6 +262,18 @@ function applyMarks(node: HeraldNode, mode: CompileMode): string {
 const listItems = async (ctx: CompileContext, marker: (i: number) => string) =>
   (await ctx.childList()).map((item, i) => indent(item, marker(i))).join("\n")
 
+const ALIGN_DELIMITERS: Record<string, string> = {
+  [TableAlign.Left]: ":---",
+  [TableAlign.Center]: ":---:",
+  [TableAlign.Right]: "---:",
+}
+
+// one line, with pipes escaped so they don't split the cell
+const cellText = async (ctx: CompileContext) => {
+  const text = (await ctx.children()).replace(/\n+/g, " ")
+  return ctx.mode === CompileMode.Markdown ? text.replace(/\|/g, "\\|") : text
+}
+
 // Built-in compilers. A plugin's NodeDef.compile or CompileOptions.override wins over these.
 const NATIVE: Record<string, NodeCompiler<any>> = {
   doc: (_n, ctx) => ctx.children(),
@@ -286,4 +298,20 @@ const NATIVE: Record<string, NodeCompiler<any>> = {
     return "```" + (node.attrs.language ?? "") + "\n" + code + "\n```"
   },
   horizontalRule: (_n, ctx) => (ctx.mode === CompileMode.Markdown ? "---" : ""),
+  // a markdown table in markdown mode; in plain mode, one line per row with cells separated by " | "
+  table: async (node, ctx) => {
+    const rows = await ctx.childList()
+    if (ctx.mode !== CompileMode.Markdown) {
+      return rows.join("\n")
+    }
+    const header = node.content?.[0]?.content ?? []
+    const delimiter = `| ${header.map((c) => ALIGN_DELIMITERS[String(c.attrs?.align)] ?? "---").join(" | ")} |`
+    return [rows[0], delimiter, ...rows.slice(1)].join("\n")
+  },
+  tableRow: async (_n, ctx) => {
+    const cells = await ctx.childList()
+    return ctx.mode === CompileMode.Markdown ? `| ${cells.join(" | ")} |` : cells.join(" | ")
+  },
+  tableHeader: (_n, ctx) => cellText(ctx),
+  tableCell: (_n, ctx) => cellText(ctx),
 }

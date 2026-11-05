@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { z } from "zod"
-import { createSchema, defineNode, DiagnosticCode, find, HeraldParseError, mentions, replace, section, starterKit, type HeraldDoc } from "@herald/core"
+import { CompileMode, createSchema, defineNode, DiagnosticCode, find, HeraldParseError, mentions, replace, section, starterKit, type HeraldDoc } from "@herald/core"
 import { agentInputs, outputShape, toolKind } from "@herald/agent"
 import { markdown } from "@herald/markdown"
 
@@ -211,5 +211,14 @@ describe("nested fields", () => {
         "  - `sku` (string)",
       ].join("\n"),
     )
+  })
+})
+
+describe("tables", () => {
+  const doc = md("| Tool | Use |\n| :--- | --- |\n| @[CRM](tool:crm) | look up **accounts** |\n")
+  test("compile to a markdown table, or rows of cells in plain mode", async () => {
+    const out = await schema.compile(doc)
+    expect(out.prompt).toBe("| Tool | Use |\n| :--- | --- |\n| `crm` (tool) | look up **accounts** |\n\nAvailable tools: `crm`")
+    expect((await schema.compile(doc, { mode: CompileMode.Plain })).prompt.split("\n\n")[0]).toBe("Tool | Use\n`crm` (tool) | look up accounts")
   })
 })

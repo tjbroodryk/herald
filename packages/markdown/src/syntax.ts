@@ -1,4 +1,4 @@
-import { parser as baseParser, Strikethrough, type MarkdownConfig } from "@lezer/markdown"
+import { parser as baseParser, Strikethrough, Table, type MarkdownConfig } from "@lezer/markdown"
 import { parseAttrs } from "./attrs"
 
 export const DIRECTIVE_OPEN = /^:::([A-Za-z][\w-]*)/
@@ -84,4 +84,4 @@ const heraldSyntax: MarkdownConfig = {
   ],
 }
 
-export const markdownParser = baseParser.configure([Strikethrough, heraldSyntax])
+export const markdownParser = baseParser.configure([Strikethrough, Table, heraldSyntax])

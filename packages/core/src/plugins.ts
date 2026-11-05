@@ -106,3 +106,37 @@ export const section = defineNode<{ title?: string; color?: string }>({
     },
   ],
 })
+
+/**
+ * Adds a "Table" entry to the / menu. Tables themselves are built in: markdown tables always parse, compile and
+ * round-trip, and the editor shows them rendered until the cursor goes inside.
+ */
+export function tables(options: { columns?: number; rows?: number } = {}): Plugin {
+  const columns = options.columns ?? 2
+  const rows = options.rows ?? 2
+  const cell = (type: string, text: string): HeraldNode => ({
+    type,
+    content: [{ type: NodeType.Paragraph, content: text ? [{ type: NodeType.Text, text }] : [] }],
+  })
+  const row = (type: string, label: (i: number) => string): HeraldNode => ({
+    type: NodeType.TableRow,
+    content: Array.from({ length: columns }, (_, i) => cell(type, label(i))),
+  })
+  return {
+    name: "tables",
+    slash: [
+      {
+        id: "table",
+        label: "Table",
+        detail: "| a | b |",
+        insert: () => ({
+          type: NodeType.Table,
+          content: [
+            row(NodeType.TableHeader, (i) => `Column ${i + 1}`),
+            ...Array.from({ length: rows - 1 }, () => row(NodeType.TableCell, () => "")),
+          ],
+        }),
+      },
+    ],
+  }
+}

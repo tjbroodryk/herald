@@ -34,6 +34,7 @@ export const editorClasses: EditorClasses = {
     "absolute left-1 z-10 flex w-4 cursor-grab items-center justify-center rounded-sm text-[15px] tracking-[-4px] text-muted-foreground select-none hover:bg-accent hover:text-accent-foreground",
   "drop-line": "pointer-events-none absolute right-3 left-5 z-10 h-0.5 rounded-full bg-primary",
   "drag-ghost": "pointer-events-none absolute right-3 left-5 rounded-sm bg-primary/10",
+  table: "font-mono text-[0.85em]",
 }
 
 export interface PromptEditorProps {

@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { createRoot } from "react-dom/client"
-import { createSchema, section, starterKit, type HeraldDoc } from "@herald/core"
+import { createSchema, section, starterKit, tables, type HeraldDoc } from "@herald/core"
+import { htmlPaste, markdownPaste } from "@herald/paste"
 import { agentInputs, outputShape } from "@herald/agent"
 import { codemirror } from "@herald/codemirror"
 import { trigger, useDoc, useEditor } from "@herald/react"
@@ -11,8 +12,8 @@ import { DocView } from "@/registry/herald/herald-doc-view"
 import { initialPrompt } from "./data"
 import { compileOptions, diagnoseOptions, mention, mentionItems } from "./mentions"
 
-const schema = createSchema([starterKit(), mention, section, agentInputs(), outputShape()])
-const chatSchema = createSchema([starterKit(), mention])
+const schema = createSchema([starterKit(), tables(), mention, section, agentInputs(), outputShape(), htmlPaste(), markdownPaste()])
+const chatSchema = createSchema([starterKit(), mention, htmlPaste(), markdownPaste()])
 
 const PAGES = [
   { href: "./", label: "Prompt editor" },

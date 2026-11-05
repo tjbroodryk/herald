@@ -13,8 +13,17 @@ export const NodeType = {
   Text: "text",
   Mention: "mention",
   Section: "section",
+  // tables, in TipTap's shape: table > tableRow > tableHeader | tableCell > paragraph
+  Table: "table",
+  TableRow: "tableRow",
+  TableHeader: "tableHeader",
+  TableCell: "tableCell",
 } as const
 export type NodeType = (typeof NodeType)[keyof typeof NodeType]
+
+/** A table column's alignment, stored as `align` on each of its cells. */
+export const TableAlign = { Left: "left", Center: "center", Right: "right" } as const
+export type TableAlign = (typeof TableAlign)[keyof typeof TableAlign]
 
 /** Marks with a markdown form, in nesting order (outermost first). */
 export const MarkType = {

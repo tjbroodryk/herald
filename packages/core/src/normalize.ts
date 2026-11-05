@@ -1,4 +1,4 @@
-import { MarkType, NodeType, type Attrs, type HeraldMark, type HeraldNode } from "./types"
+import { MarkType, NodeType, TableAlign, type Attrs, type HeraldMark, type HeraldNode } from "./types"
 
 // One canonical form, so every editor adapter and storage format produces byte-equal JSON for the same content.
 
@@ -17,6 +17,9 @@ export function isInline(node: HeraldNode): boolean {
 function normalizeNode(node: HeraldNode): HeraldNode {
   if (node.type === NodeType.Text) {
     return textNode(node.text ?? "", node.marks)
+  }
+  if (node.type === NodeType.Table) {
+    return normalizeTable(node)
   }
   const out: HeraldNode = { type: node.type }
   const attrs = normalizeAttrs(node)
@@ -37,12 +40,62 @@ function normalizeNode(node: HeraldNode): HeraldNode {
     }
     content = normalizeInline(content)
   } else {
-    content = content.filter((c) => !(c.type === NodeType.Paragraph && !c.content?.length))
+    // empty paragraphs and tables have no markdown form
+    content = content.filter((c) => !((c.type === NodeType.Paragraph || c.type === NodeType.Table) && !c.content?.length))
   }
   if (content.length) {
     out.content = content
   }
   return out
+}
+
+const ALIGNS = new Set<unknown>(Object.values(TableAlign))
+
+/**
+ * Tables as markdown can hold them: the first row is the header, every row is as wide as the widest, each cell is
+ * one line of inline content, and each column has one alignment (the header cell's). TipTap's colspan/rowspan/colwidth
+ * are dropped.
+ */
+function normalizeTable(node: HeraldNode): HeraldNode {
+  const rows = (node.content ?? []).filter((r) => r.type === NodeType.TableRow).map((r) => r.content ?? [])
+  if (!rows.length) {
+    return { type: NodeType.Table }
+  }
+  const width = Math.max(1, ...rows.map((r) => r.length))
+  const aligns = Array.from({ length: width }, (_, i) => rows[0]![i]?.attrs?.align)
+  return {
+    type: NodeType.Table,
+    content: rows.map((cells, r) => ({
+      type: NodeType.TableRow,
+      content: Array.from({ length: width }, (_, i) => {
+        const inline = normalizeInline(
+          cellInline(cells[i]).map((c) => (c.type === NodeType.HardBreak ? { type: NodeType.Text, text: " " } : c)),
+        )
+        const align = aligns[i]
+        return {
+          type: r === 0 ? NodeType.TableHeader : NodeType.TableCell,
+          ...(ALIGNS.has(align) ? { attrs: { align: align! } } : {}),
+          ...(inline.length ? { content: [{ type: NodeType.Paragraph, content: inline }] } : {}),
+        }
+      }),
+    })),
+  }
+}
+
+// a cell's text on one line: its blocks' inline content, separated by spaces
+function cellInline(cell: HeraldNode | undefined): HeraldNode[] {
+  const lines: HeraldNode[][] = []
+  const visit = (n: HeraldNode) => {
+    if (n.content?.some(isInline)) {
+      lines.push(n.content.map(normalizeNode))
+    } else {
+      n.content?.forEach(visit)
+    }
+  }
+  if (cell) {
+    visit(cell)
+  }
+  return lines.flatMap((line, i) => (i ? [{ type: NodeType.Text, text: " " }, ...line] : line))
 }
 
 function normalizeAttrs(node: HeraldNode): Attrs | undefined {

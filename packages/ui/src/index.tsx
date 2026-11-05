@@ -15,7 +15,7 @@ import { views } from "./views"
 
 // The ready-styled look: plain CSS classes, themed with --herald-* variables in styles.css.
 
-export { FieldsBlock, JsonBlock, MentionChip, views } from "./views"
+export { FieldsBlock, JsonBlock, MentionChip, TablePreview, views } from "./views"
 export { trigger, useDoc, useEditor, type HeraldEditor, type TriggerDef } from "@herald/react"
 
 export interface PromptEditorProps {

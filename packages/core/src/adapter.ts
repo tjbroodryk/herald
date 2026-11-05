@@ -51,6 +51,8 @@ export const EditorPart = {
   DragHandle: "drag-handle",
   DropLine: "drop-line",
   DragGhost: "drag-ghost",
+  /** A table's lines while its markdown source is shown for editing. */
+  Table: "table",
 } as const
 export type EditorPart = (typeof EditorPart)[keyof typeof EditorPart]
 
@@ -71,6 +73,8 @@ export interface AdapterHooks {
   renderInline(node: HeraldNode, el: HTMLElement): () => void
   /** Draws a block atom (inputs, output shape) into `el`. Call `update` to write new attrs back. */
   renderBlock(node: HeraldNode, el: HTMLElement, update: (node: HeraldNode) => void): BlockView
+  /** Converts pasted clipboard data into nodes to insert, or null for the editor's own paste. */
+  onPaste?(data: { getData(mime: string): string }): HeraldNode[] | null
 }
 
 /** One editor engine. CodeMirror ships first; a ProseMirror adapter implements the same interface. */

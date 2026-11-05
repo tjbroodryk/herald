@@ -68,6 +68,16 @@ export interface MentionKind {
   diagnose?: (attrs: MentionAttrs, options: DiagnoseOptions) => string | undefined
 }
 
+/** Clipboard formats paste rules can read. */
+export const PasteMime = { Html: "text/html", Text: "text/plain" } as const
+export type PasteMime = (typeof PasteMime)[keyof typeof PasteMime]
+
+/** Turns one clipboard format into nodes. Return null to let the next rule (or the editor's own paste) handle it. */
+export interface PasteRule {
+  mime: PasteMime | (string & {})
+  parse(data: string): HeraldNode[] | null
+}
+
 export interface Plugin {
   name: string
   nodes?: NodeDef<any>[]
@@ -75,6 +85,8 @@ export interface Plugin {
   mentionKinds?: Record<string, MentionKind>
   slash?: SuggestionItem[]
   toolbar?: ToolbarItem[]
+  /** Tried in plugin order on paste; the first rule that returns nodes wins. */
+  paste?: PasteRule[]
   diagnose?: (doc: HeraldDoc, options: DiagnoseOptions) => Diagnostic[]
   finalize?: (ctx: FinalizeContext) => void
 }
@@ -89,6 +101,7 @@ export class Schema {
   readonly mentionKinds = new Map<string, MentionKind>()
   readonly slash: SuggestionItem[] = []
   readonly toolbar: ToolbarItem[] = []
+  readonly paste: PasteRule[] = []
 
   constructor(readonly plugins: Plugin[]) {
     for (const p of plugins) {
@@ -97,7 +110,20 @@ export class Schema {
       Object.entries(p.mentionKinds ?? {}).forEach(([k, v]) => this.mentionKinds.set(k, v))
       this.slash.push(...(p.slash ?? []))
       this.toolbar.push(...(p.toolbar ?? []))
+      this.paste.push(...(p.paste ?? []))
     }
+  }
+
+  /** Runs the paste rules against clipboard data. Null means no rule took it. */
+  parsePaste(data: { getData(mime: string): string }): HeraldNode[] | null {
+    for (const rule of this.paste) {
+      const text = data.getData(rule.mime)
+      const nodes = text ? rule.parse(text) : null
+      if (nodes?.length) {
+        return nodes
+      }
+    }
+    return null
   }
 
   /** Untrusted JSON in, a checked and normalized doc out. Throws HeraldParseError on bad attrs. */

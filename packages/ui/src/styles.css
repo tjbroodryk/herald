@@ -286,6 +286,14 @@
   .herald-doc blockquote { border-left: 3px solid var(--herald-border); padding-left: 12px; color: var(--herald-muted); }
   .herald-doc a { color: var(--herald-accent); }
   .herald-doc [data-herald-block] { border-left: 3px solid var(--herald-block-color); padding-left: 12px; }
+  .herald-doc table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.95em; }
+  .herald-doc th, .herald-doc td { border: 1px solid var(--herald-border); padding: 4px 10px; text-align: left; vertical-align: top; }
+  .herald-doc th { background: var(--herald-wash); font-weight: 600; }
+  /* in the editor: looks clickable, since a click shows its markdown */
+  .herald-table-preview { cursor: text; margin: 4px 0; }
+  .herald-table-preview:hover th, .herald-table-preview:hover td { border-color: var(--herald-accent); }
+  /* the table's markdown while it's being edited */
+  .herald-table { font-family: var(--herald-mono); font-size: 0.9em; }
 
   /* inspector */
   .herald-inspector {

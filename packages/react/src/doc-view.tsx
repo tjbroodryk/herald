@@ -59,6 +59,28 @@ function Node({ node, views, schema }: { node: HeraldNode; views: ViewSet; schem
       return text(node)
     case NodeType.Mention:
       return <Chip node={node} kind={schema?.mentionKinds.get(String(node.attrs?.kind))} />
+    case NodeType.Table: {
+      const [head, ...body] = node.content ?? []
+      return (
+        <table>
+          {head && <thead>{nodes([head], views, schema)}</thead>}
+          {body.length > 0 && <tbody>{nodes(body, views, schema)}</tbody>}
+        </table>
+      )
+    }
+    case NodeType.TableRow:
+      return <tr>{children}</tr>
+    case NodeType.TableHeader:
+    case NodeType.TableCell: {
+      // a cell holds one paragraph; render its content without the <p>
+      const Cell = node.type === NodeType.TableHeader ? "th" : "td"
+      const align = node.attrs?.align
+      return (
+        <Cell style={typeof align === "string" ? { textAlign: align as "left" } : undefined}>
+          {nodes(node.content?.[0]?.content, views, schema)}
+        </Cell>
+      )
+    }
     default:
       if (node.content) {
         return <div data-herald-block={node.type}>{children}</div>
