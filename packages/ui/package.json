@@ -1,0 +1,36 @@
+{
+  "name": "@herald/ui",
+  "version": "0.1.0",
+  "description": "Ready-styled Herald components (plain CSS, themed with variables) on top of @herald/react.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tjbroodryk/herald.git",
+    "directory": "packages/ui"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "scripts": {
+    "build": "rm -rf dist && NODE_ENV=production bun build src/index.tsx --outdir dist --format esm --target browser --packages external --external '@herald/*' && tsc -p tsconfig.build.json && cp src/styles.css dist/styles.css"
+  },
+  "dependencies": {
+    "@herald/core": "workspace:*",
+    "@herald/react": "workspace:*",
+    "@herald/agent": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  }
+}

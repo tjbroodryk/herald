@@ -1,27 +1,34 @@
 import type { ReactNode } from "react"
 import type { HeraldDoc, HeraldNode, Schema } from "@herald/core"
-import { JsonBlock, MentionChip } from "./views"
+import type { ViewSet } from "./index"
 
 export interface DocViewProps {
   doc: HeraldDoc
+  /** The chip and block views to use, as for the editor. */
+  views: ViewSet
   /** Gives mention chips their kind's colour and label. */
   schema?: Schema
   className?: string
 }
 
-/** Read-only rendering of a doc, e.g. a sent chat message. No editor is created. */
-export function DocView({ doc, schema, className }: DocViewProps) {
-  return <div className={["herald-doc", className].filter(Boolean).join(" ")}>{nodes(doc.content, schema)}</div>
+/**
+ * Read-only rendering of a doc, e.g. a sent chat message. No editor is created. Renders plain semantic HTML;
+ * container nodes such as sections get `data-herald-block="<type>"` for styling.
+ */
+export function DocView({ doc, views, schema, className }: DocViewProps) {
+  return <div className={className}>{nodes(doc.content, views, schema)}</div>
 }
 
-function nodes(content: HeraldNode[] | undefined, schema?: Schema): ReactNode {
-  return content?.map((n, i) => <Node key={i} node={n} schema={schema} />)
+function nodes(content: HeraldNode[] | undefined, views: ViewSet, schema?: Schema): ReactNode {
+  return content?.map((n, i) => <Node key={i} node={n} views={views} schema={schema} />)
 }
 
 const safeHref = (href: unknown) => (typeof href === "string" && /^(https?:|mailto:)/i.test(href) ? href : undefined)
 
-function Node({ node, schema }: { node: HeraldNode; schema?: Schema }): ReactNode {
-  const children = nodes(node.content, schema)
+function Node({ node, views, schema }: { node: HeraldNode; views: ViewSet; schema?: Schema }): ReactNode {
+  const children = nodes(node.content, views, schema)
+  const { inline: Chip } = views
+  const Block = views.blocks[node.type] ?? views.blocks.default
   switch (node.type) {
     case "paragraph":
       return <p>{children}</p>
@@ -51,16 +58,12 @@ function Node({ node, schema }: { node: HeraldNode; schema?: Schema }): ReactNod
     case "text":
       return text(node)
     case "mention":
-      return <MentionChip node={node} kind={schema?.mentionKinds.get(String(node.attrs?.kind))} />
+      return <Chip node={node} kind={schema?.mentionKinds.get(String(node.attrs?.kind))} />
     default:
       if (node.content) {
-        return (
-          <div className="herald-doc-block" data-type={node.type}>
-            {children}
-          </div>
-        )
+        return <div data-herald-block={node.type}>{children}</div>
       }
-      return typeof node.attrs?.label === "string" ? <MentionChip node={node} /> : <JsonBlock node={node} update={() => {}} />
+      return typeof node.attrs?.label === "string" ? <Chip node={node} /> : <Block node={node} update={() => {}} />
   }
 }
 

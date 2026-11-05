@@ -23,8 +23,41 @@ export interface BlockView {
   destroy(): void
 }
 
+/**
+ * The parts of the editor a UI layer can style. An adapter puts `classes[key]` on each part, or `herald-<key>`
+ * when the UI layer gives none.
+ */
+export type EditorClassKey =
+  | "h1"
+  | "h2"
+  | "h3"
+  | "h4"
+  | "h5"
+  | "h6"
+  | "bold"
+  | "italic"
+  | "strike"
+  | "code"
+  | "link"
+  | "syntax"
+  | "list-mark"
+  | "quote"
+  | "code-block"
+  | "hr"
+  | "directive"
+  | "directive-open"
+  | "directive-close"
+  | "directive-title"
+  | "drag-handle"
+  | "drop-line"
+  | "drag-ghost"
+
+export type EditorClasses = Partial<Record<EditorClassKey, string>>
+
 /** What the editor-agnostic UI layer gives an adapter when mounting it. */
 export interface AdapterHooks {
+  /** Class names for the editor's own parts; see EditorClassKey. */
+  classes?: EditorClasses
   /** Trigger strings to watch for, e.g. ["@", "/"]. */
   triggers: string[]
   onChange(doc: HeraldDoc): void

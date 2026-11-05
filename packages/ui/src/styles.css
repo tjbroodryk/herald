@@ -283,7 +283,7 @@
   .herald-doc pre code { background: none; padding: 0; }
   .herald-doc blockquote { border-left: 3px solid var(--herald-border); padding-left: 12px; color: var(--herald-muted); }
   .herald-doc a { color: var(--herald-accent); }
-  .herald-doc-block { border-left: 3px solid var(--herald-block-color); padding-left: 12px; }
+  .herald-doc [data-herald-block] { border-left: 3px solid var(--herald-block-color); padding-left: 12px; }
 
   /* inspector */
   .herald-inspector {

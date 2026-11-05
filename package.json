@@ -7,7 +7,7 @@
     "example": "bun --hot example/server.ts",
     "test": "bun test",
     "typecheck": "bun check",
-    "build": "for p in core markdown agent codemirror react; do (cd packages/$p && bun run build) || exit 1; done",
+    "build": "for p in core markdown agent codemirror react ui; do (cd packages/$p && bun run build) || exit 1; done",
     "build:site": "rm -rf site && bun build example/index.html example/chat.html --outdir site --minify --splitting --public-path ./ --define process.env.NODE_ENV='\"production\"'",
     "version:set": "bun scripts/version.ts"
   },
@@ -20,6 +20,7 @@
     "@herald/core": "workspace:*",
     "@herald/markdown": "workspace:*",
     "@herald/react": "workspace:*",
+    "@herald/ui": "workspace:*",
     "@types/bun": "latest",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

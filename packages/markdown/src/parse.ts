@@ -1,17 +1,26 @@
 import type { SyntaxNode } from "@lezer/common"
-import { normalize, type Attrs, type HeraldDoc, type HeraldMark, type HeraldNode, type Range } from "@herald/core"
+import {
+  normalize,
+  type Attrs,
+  type EditorClassKey,
+  type HeraldDoc,
+  type HeraldMark,
+  type HeraldNode,
+  type Range,
+} from "@herald/core"
 import { parseAttrs } from "./attrs"
 import { DIRECTIVE_OPEN, INLINE_DIRECTIVE, MENTION, markdownParser } from "./syntax"
 
 /**
  * What an editor needs to draw rich text over the markdown source. Positions are offsets into the text.
  * `reveal` is the range where the hidden syntax comes back while the cursor is inside it.
+ * `key` names the styled part (an EditorClassKey); the UI layer decides its class name.
  */
 export type Span =
   | { kind: "hide"; from: number; to: number; reveal: Range }
-  | { kind: "style"; from: number; to: number; cls: string }
-  | { kind: "lines"; from: number; to: number; cls: string; attrs?: Record<string, string> }
-  | { kind: "label"; from: number; to: number; text: string; cls: string; reveal: Range }
+  | { kind: "style"; from: number; to: number; key: EditorClassKey }
+  | { kind: "lines"; from: number; to: number; key: EditorClassKey; attrs?: Record<string, string> }
+  | { kind: "label"; from: number; to: number; text: string; key: EditorClassKey; reveal: Range }
   | { kind: "atom"; from: number; to: number; node: HeraldNode; block: boolean }
   /** A top-level block: the unit that drag-and-drop moves. */
   | { kind: "block"; from: number; to: number; node: HeraldNode }
@@ -48,7 +57,7 @@ const SKIP = new Set([
   "CodeInfo",
 ])
 
-const INLINE_MARKS: Record<string, string> = {
+const INLINE_MARKS: Record<string, "italic" | "bold" | "strike"> = {
   Emphasis: "italic",
   StrongEmphasis: "bold",
   Strikethrough: "strike",
@@ -105,7 +114,7 @@ class Converter {
     const heading = /^(?:ATX|Setext)Heading(\d)$/.exec(n.name)
     if (heading) {
       const level = Number(heading[1])
-      this.span({ kind: "lines", from: n.from, to: n.to, cls: `herald-h${level}` })
+      this.span({ kind: "lines", from: n.from, to: n.to, key: `h${level}` as EditorClassKey })
       for (let c = n.firstChild; c; c = c.nextSibling) {
         if (c.name === "HeaderMark") {
           // take the space after `#` with it
@@ -131,21 +140,21 @@ class Converter {
       case "ListItem": {
         const mark = n.getChild("ListMark")
         if (mark) {
-          this.span({ kind: "style", from: mark.from, to: mark.to, cls: "herald-list-mark" })
+          this.span({ kind: "style", from: mark.from, to: mark.to, key: "list-mark" })
         }
         return { type: "listItem", content: this.blocks(n) }
       }
       case "Blockquote":
-        this.span({ kind: "lines", from: n.from, to: n.to, cls: "herald-quote" })
+        this.span({ kind: "lines", from: n.from, to: n.to, key: "quote" })
         this.hideChildrenDeep(n, "QuoteMark", n)
         return { type: "blockquote", content: this.blocks(n) }
       case "FencedCode":
         return this.fencedCode(n)
       case "CodeBlock":
-        this.span({ kind: "lines", from: n.from, to: n.to, cls: "herald-code-block" })
+        this.span({ kind: "lines", from: n.from, to: n.to, key: "code-block" })
         return { type: "codeBlock", content: [{ type: "text", text: this.codeText(n) }] }
       case "HorizontalRule":
-        this.span({ kind: "lines", from: n.from, to: n.to, cls: "herald-hr" })
+        this.span({ kind: "lines", from: n.from, to: n.to, key: "hr" })
         this.span({ kind: "hide", from: n.from, to: n.to, reveal: { from: n.from, to: n.to } })
         return { type: "horizontalRule" }
       case "Directive":
@@ -165,7 +174,7 @@ class Converter {
     do {
       if (cursor.name === name) {
         const to = this.src[cursor.to] === " " ? cursor.to + 1 : cursor.to
-        this.span({ kind: "style", from: cursor.from, to, cls: "herald-syntax" })
+        this.span({ kind: "style", from: cursor.from, to, key: "syntax" })
       }
     } while (cursor.next() && cursor.from < reveal.to)
   }
@@ -196,7 +205,7 @@ class Converter {
         // invalid JSON stays a code block so the text isn't lost
       }
     }
-    this.span({ kind: "lines", from: n.from, to: n.to, cls: "herald-code-block" })
+    this.span({ kind: "lines", from: n.from, to: n.to, key: "code-block" })
     this.hideChildren(n, ["CodeMark", "CodeInfo"])
     return {
       type: "codeBlock",
@@ -222,13 +231,13 @@ class Converter {
       lineAttrs.style = `--herald-block-color: ${attrs.color}`
     }
     const headerRange = { from: n.from, to: n.from + headerEnd }
-    this.span({ kind: "lines", from: n.from, to: n.to, cls: "herald-directive", attrs: lineAttrs })
-    this.span({ kind: "lines", from: headerRange.from, to: headerRange.to, cls: "herald-directive-open" })
+    this.span({ kind: "lines", from: n.from, to: n.to, key: "directive", attrs: lineAttrs })
+    this.span({ kind: "lines", from: headerRange.from, to: headerRange.to, key: "directive-open" })
     const title = typeof attrs?.title === "string" && attrs.title ? attrs.title : type
-    this.span({ kind: "label", ...headerRange, text: title, cls: "herald-directive-title", reveal: headerRange })
+    this.span({ kind: "label", ...headerRange, text: title, key: "directive-title", reveal: headerRange })
     if (closed) {
       const close = { from: n.from + lastLineStart, to: n.to }
-      this.span({ kind: "lines", ...close, cls: "herald-directive-close" })
+      this.span({ kind: "lines", ...close, key: "directive-close" })
       this.span({ kind: "hide", ...close, reveal: close })
     }
 
@@ -259,7 +268,7 @@ class Converter {
   private inlineNode(c: SyntaxNode, marks: HeraldMark[]): HeraldNode[] {
     const markType = INLINE_MARKS[c.name]
     if (markType) {
-      this.span({ kind: "style", from: c.from, to: c.to, cls: `herald-${markType}` })
+      this.span({ kind: "style", from: c.from, to: c.to, key: markType })
       this.hideChildren(c, ["EmphasisMark", "StrikethroughMark"])
       return this.inline(c, [...marks, { type: markType }])
     }
@@ -273,7 +282,7 @@ class Converter {
         if (!open || !close || open === close) {
           return [withMarks({ type: "text", text: this.slice(c.from, c.to) }, marks)]
         }
-        this.span({ kind: "style", from: c.from, to: c.to, cls: "herald-code" })
+        this.span({ kind: "style", from: c.from, to: c.to, key: "code" })
         this.hideChildren(c, ["CodeMark"])
         let code = this.slice(open.to, close.from).replace(/\n/g, " ")
         if (code.length > 1 && code.startsWith(" ") && code.endsWith(" ") && code.trim()) {
@@ -291,7 +300,7 @@ class Converter {
         if (href.startsWith("<") && href.endsWith(">")) {
           href = href.slice(1, -1)
         }
-        this.span({ kind: "style", from: c.from, to: c.to, cls: "herald-link" })
+        this.span({ kind: "style", from: c.from, to: c.to, key: "link" })
         this.span({ kind: "hide", from: linkMarks[0]!.from, to: linkMarks[0]!.to, reveal: c })
         this.span({ kind: "hide", from: linkMarks[1]!.from, to: c.to, reveal: c })
         const inner = { from: linkMarks[0]!.to, to: linkMarks[1]!.from }

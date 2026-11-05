@@ -1,18 +1,6 @@
-import { useEffect, useState, type CSSProperties } from "react"
-import { FIELD_TYPES, type Field, type FieldType } from "@herald/agent"
-import type { HeraldNode, MentionKind } from "@herald/core"
-
-export interface InlineViewProps {
-  node: HeraldNode
-  /** The mention kind, when the node is a mention. */
-  kind?: MentionKind
-}
-
-export interface BlockViewProps {
-  node: HeraldNode
-  /** Writes a new version of the node back into the document. */
-  update(node: HeraldNode): void
-}
+import type { CSSProperties } from "react"
+import { useFields, type BlockViewProps, type InlineViewProps, type ViewSet } from "@herald/react"
+import type { FieldType } from "@herald/agent"
 
 export function MentionChip({ node, kind }: InlineViewProps) {
   const label = String(node.attrs?.label ?? node.attrs?.id ?? node.type)
@@ -32,22 +20,11 @@ export function MentionChip({ node, kind }: InlineViewProps) {
 const TITLES: Record<string, string> = { inputs: "inputs", outputShape: "output shape" }
 
 /** Editor for `inputs` and `outputShape`: a list of typed fields. */
-export function FieldsBlock({ node, update }: BlockViewProps) {
-  const incoming = (Array.isArray(node.attrs?.fields) ? node.attrs.fields : []) as unknown as Field[]
-  // local copy so typing isn't reset while the change round-trips through the document
-  const [fields, setFields] = useState(incoming)
-  const key = JSON.stringify(incoming)
-  useEffect(() => setFields(incoming), [key])
-
-  const write = (next: Field[]) => {
-    setFields(next)
-    update({ ...node, attrs: { ...node.attrs, fields: next as never } })
-  }
-  const patch = (i: number, change: Partial<Field>) => write(fields.map((f, j) => (j === i ? { ...f, ...change } : f)))
-
+export function FieldsBlock(props: BlockViewProps) {
+  const { fields, types, patch, add, remove } = useFields(props)
   return (
-    <div className="herald-block" data-type={node.type}>
-      <div className="herald-block-title">{TITLES[node.type] ?? node.type}</div>
+    <div className="herald-block" data-type={props.node.type}>
+      <div className="herald-block-title">{TITLES[props.node.type] ?? props.node.type}</div>
       {fields.map((f, i) => (
         <div className="herald-field" key={i}>
           <input
@@ -58,7 +35,7 @@ export function FieldsBlock({ node, update }: BlockViewProps) {
             onChange={(e) => patch(i, { name: e.target.value.replace(/\s/g, "_") })}
           />
           <select aria-label="type" value={f.type} onChange={(e) => patch(i, { type: e.target.value as FieldType })}>
-            {FIELD_TYPES.map((t) => (
+            {types.map((t) => (
               <option key={t}>{t}</option>
             ))}
           </select>
@@ -77,16 +54,12 @@ export function FieldsBlock({ node, update }: BlockViewProps) {
             />
             required
           </label>
-          <button type="button" aria-label={`remove ${f.name}`} onClick={() => write(fields.filter((_, j) => j !== i))}>
+          <button type="button" aria-label={`remove ${f.name}`} onClick={() => remove(i)}>
             ×
           </button>
         </div>
       ))}
-      <button
-        type="button"
-        className="herald-block-add"
-        onClick={() => write([...fields, { name: `field_${fields.length + 1}`, type: "string" }])}
-      >
+      <button type="button" className="herald-block-add" onClick={add}>
         + field
       </button>
     </div>
@@ -101,4 +74,9 @@ export function JsonBlock({ node }: BlockViewProps) {
       <pre>{JSON.stringify(node.attrs ?? {}, null, 2)}</pre>
     </div>
   )
+}
+
+export const views: ViewSet = {
+  inline: MentionChip,
+  blocks: { default: JsonBlock, inputs: FieldsBlock, outputShape: FieldsBlock },
 }

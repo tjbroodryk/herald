@@ -13,6 +13,7 @@
         "@herald/core": "workspace:*",
         "@herald/markdown": "workspace:*",
         "@herald/react": "workspace:*",
+        "@herald/ui": "workspace:*",
         "@types/bun": "latest",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
@@ -68,6 +69,19 @@
         "react-dom": ">=18",
       },
     },
+    "packages/ui": {
+      "name": "@herald/ui",
+      "version": "0.1.0",
+      "dependencies": {
+        "@herald/agent": "workspace:*",
+        "@herald/core": "workspace:*",
+        "@herald/react": "workspace:*",
+      },
+      "peerDependencies": {
+        "react": ">=18",
+        "react-dom": ">=18",
+      },
+    },
   },
   "packages": {
     "@codemirror/commands": ["@codemirror/commands@6.11.1", "", { "dependencies": { "@codemirror/language": "^6.0.0", "@codemirror/state": "^6.7.0", "@codemirror/view": "^6.27.0", "@lezer/common": "^1.1.0" } }, "sha512-O/4hG3SC1YwcmQ0d2UVNDs+AsaNWd1iHVxbTeEBuqH+6bExAiPK3iS/BvpY6rZGURALv4ZD3sIgcCmRvw3ehBg=="],
@@ -89,6 +103,8 @@
     "@herald/markdown": ["@herald/markdown@workspace:packages/markdown"],
 
     "@herald/react": ["@herald/react@workspace:packages/react"],
+
+    "@herald/ui": ["@herald/ui@workspace:packages/ui"],
 
     "@lezer/common": ["@lezer/common@1.5.5", "", {}, "sha512-Pw7PVCndruF1pb3ebCxpSVpkMHSDjwRCLcTRw+RizUKco5QbWylwq2g4lnG/RYN7yTTQDXE9F77MwtkAyphrjg=="],
 

@@ -8,7 +8,7 @@ import {
   WidgetType,
   type DecorationSet,
 } from "@codemirror/view"
-import type { AdapterHooks, BlockView, EditorAdapter, HeraldDoc, HeraldNode, Range } from "@herald/core"
+import type { AdapterHooks, BlockView, EditorAdapter, EditorClassKey, HeraldDoc, HeraldNode, Range } from "@herald/core"
 import { isInlineAtom, parseMarkdown, serializeMarkdown, serializeWithCursor, type ParseResult, type Span } from "@herald/markdown"
 import { dragBlocks, moveBlockCommand } from "./drag"
 
@@ -34,9 +34,12 @@ export class CodeMirrorAdapter implements EditorAdapter {
     update: (value, tr) => (tr.docChanged ? parseMarkdown(tr.state.doc.toString()) : value),
   })
 
+  private cls: (key: EditorClassKey) => string = (key) => `herald-${key}`
+
   constructor(private readonly options: CodeMirrorOptions) {}
 
   mount(el: HTMLElement, doc: HeraldDoc, hooks: AdapterHooks): void {
+    this.cls = (key) => hooks.classes?.[key] ?? `herald-${key}`
     const parsed = this.parsed
     const decorations = StateField.define<{ decos: DecorationSet; atoms: RangeSet<Decoration> }>({
       create: (state) => this.decorate(state, hooks),
@@ -73,7 +76,7 @@ export class CodeMirrorAdapter implements EditorAdapter {
               },
             }),
           ),
-          draggable ? dragBlocks(parsed) : [],
+          draggable ? dragBlocks(parsed, this.cls) : [],
           keymap.of([
             { key: "Mod-b", run: markKey("bold") },
             { key: "Mod-i", run: markKey("italic") },
@@ -177,7 +180,7 @@ export class CodeMirrorAdapter implements EditorAdapter {
     const { from, to } = view.state.selection.main
     const active = view.state
       .field(this.parsed)
-      .spans.find((s) => s.kind === "style" && s.cls === `herald-${mark}` && s.from <= from && s.to >= to)
+      .spans.find((s) => s.kind === "style" && s.key === mark && s.from <= from && s.to >= to)
     if (active) {
       const len = mark === "code" ? 1 : delim.length
       view.dispatch({
@@ -244,8 +247,7 @@ export class CodeMirrorAdapter implements EditorAdapter {
     const end = view.coordsAtPos(sel.to)
     const marks = view.state
       .field(this.parsed)
-      .spans.filter((s) => s.kind === "style" && s.from <= sel.from && s.to >= sel.to)
-      .map((s) => (s as { cls: string }).cls.replace(/^herald-/, ""))
+      .spans.flatMap((s) => (s.kind === "style" && s.from <= sel.from && s.to >= sel.to ? [s.key] : []))
     return {
       empty: sel.empty || !view.hasFocus,
       rect: {
@@ -287,20 +289,20 @@ export class CodeMirrorAdapter implements EditorAdapter {
         return
       case "style":
         if (span.to > span.from) {
-          decos.push(Decoration.mark({ class: span.cls }).range(span.from, span.to))
+          decos.push(Decoration.mark({ class: this.cls(span.key) }).range(span.from, span.to))
         }
         return
       case "lines": {
         const last = doc.lineAt(Math.max(span.from, span.to - 1)).number
         for (let n = doc.lineAt(span.from).number; n <= last; n++) {
-          decos.push(Decoration.line({ class: span.cls, attributes: span.attrs }).range(doc.line(n).from))
+          decos.push(Decoration.line({ class: this.cls(span.key), attributes: span.attrs }).range(doc.line(n).from))
         }
         return
       }
       case "label":
         if (!revealed(span.reveal)) {
           decos.push(
-            Decoration.replace({ widget: new LabelWidget(span.text, span.cls) }).range(span.from, span.to),
+            Decoration.replace({ widget: new LabelWidget(span.text, this.cls(span.key)) }).range(span.from, span.to),
           )
         }
         return
@@ -429,16 +431,19 @@ class LabelWidget extends WidgetType {
   }
 }
 
-// CodeMirror's own base theme is unlayered, so the few properties it sets are pointed at Herald's variables here;
-// everything else lives in styles.css.
+// CodeMirror's own base theme is unlayered, so the few properties it sets are pointed at variables here. Each has a
+// fallback, so a UI layer that sets none of them (Tailwind classes only) still gets a sensible editor.
 const theme = EditorView.theme({
-  "&": { color: "var(--herald-fg)", backgroundColor: "transparent", fontSize: "var(--herald-font-size)" },
+  "&": { color: "var(--herald-fg, inherit)", backgroundColor: "transparent", fontSize: "var(--herald-font-size, inherit)" },
   "&.cm-focused": { outline: "none" },
-  ".cm-scroller": { fontFamily: "var(--herald-font)", lineHeight: "var(--herald-line-height)" },
-  ".cm-content": { padding: "var(--herald-padding)", caretColor: "var(--herald-accent)" },
+  ".cm-scroller": { fontFamily: "var(--herald-font, inherit)", lineHeight: "var(--herald-line-height, 1.6)" },
+  ".cm-content": {
+    padding: "var(--herald-padding, 12px 14px 12px 24px)",
+    caretColor: "var(--herald-accent, currentColor)",
+  },
   ".cm-line": { padding: "var(--herald-line-top, 0) 0 0 var(--herald-line-indent, 0)" },
-  ".cm-placeholder": { color: "var(--herald-muted)" },
+  ".cm-placeholder": { color: "var(--herald-muted, GrayText)" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
-    backgroundColor: "var(--herald-selection)",
+    backgroundColor: "var(--herald-selection, Highlight)",
   },
 })

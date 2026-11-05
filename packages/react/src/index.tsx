@@ -1,5 +1,12 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ComponentType, type CSSProperties } from "react"
-import { createPortal } from "react-dom"
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentType,
+  type CSSProperties,
+  type RefObject,
+} from "react"
 import { createRoot, type Root } from "react-dom/client"
 import type {
   CompileOptions,
@@ -7,18 +14,22 @@ import type {
   DiagnoseOptions,
   Diagnostic,
   EditorAdapter,
+  EditorClasses,
   HeraldDoc,
   HeraldNode,
   MentionKind,
   Schema,
   SelectionState,
   SuggestionItem,
+  ToolbarItem,
   TriggerState,
 } from "@herald/core"
+import { FIELD_TYPES, type Field, type FieldType } from "@herald/agent"
 import { markdown } from "@herald/markdown"
-import { FieldsBlock, JsonBlock, MentionChip, type BlockViewProps, type InlineViewProps } from "./views"
 
-export { FieldsBlock, JsonBlock, MentionChip, type BlockViewProps, type InlineViewProps } from "./views"
+// Headless: state and behaviour for building a Herald editor UI, no markup and no styles.
+// @herald/ui (plain CSS) and the shadcn registry (Tailwind) are two looks built on these hooks.
+
 export { DocView, type DocViewProps } from "./doc-view"
 
 export interface TriggerDef {
@@ -31,11 +42,28 @@ export function trigger(char: string, options: Omit<TriggerDef, "trigger">): Tri
   return { trigger: char, ...options }
 }
 
+export interface InlineViewProps {
+  node: HeraldNode
+  /** The mention kind, when the node is a mention. */
+  kind?: MentionKind
+}
+
+export interface BlockViewProps {
+  node: HeraldNode
+  /** Writes a new version of the node back into the document. */
+  update(node: HeraldNode): void
+}
+
+/** Per-editor overrides of how atoms render, by node type. */
 export interface Views {
-  /** Inline atoms by node type. Mentions default to MentionChip. */
   inline?: Record<string, ComponentType<InlineViewProps>>
-  /** Block atoms by node type. `inputs` and `outputShape` default to FieldsBlock, anything else to JsonBlock. */
   block?: Record<string, ComponentType<BlockViewProps>>
+}
+
+/** The look a UI layer brings: a chip for inline atoms and views for block atoms (`default` for any other type). */
+export interface ViewSet {
+  inline: ComponentType<InlineViewProps>
+  blocks: { default: ComponentType<BlockViewProps> } & Record<string, ComponentType<BlockViewProps>>
 }
 
 export interface UseEditorOptions {
@@ -98,52 +126,59 @@ export function useDoc(editor: HeraldEditor): HeraldDoc {
   return useSyncExternalStore(editor.subscribe, editor.getDoc)
 }
 
-export interface MenuProps {
+/** An open `@` or `/` menu. Render `items` in an element with `style` (fixed next to the trigger), portaled to body. */
+export interface MenuState {
+  trigger: string
+  query: string
   items: SuggestionItem[]
   active: number
   loading: boolean
-  query: string
+  placement: "top" | "bottom"
+  style: CSSProperties
   kinds: Map<string, MentionKind>
-  onHover(index: number): void
-  onSelect(item: SuggestionItem): void
+  setActive(index: number): void
+  select(item: SuggestionItem): void
 }
 
-export interface ToolbarProps {
-  editor: HeraldEditor
+/** The selection toolbar. Render `items` in an element with `style` (fixed above the selection), portaled to body. */
+export interface ToolbarState {
+  items: ToolbarItem[]
   marks: string[]
+  style: CSSProperties
+  toggle(mark: string): void
 }
 
-export interface PromptEditorProps {
-  editor: HeraldEditor
-  className?: string
-  style?: CSSProperties
-  /** Extra classes for the parts. */
-  classNames?: { root?: string; menu?: string; toolbar?: string }
-  /** Replace the default menu or selection toolbar. They get the same props the defaults use. */
-  components?: { Menu?: ComponentType<MenuProps>; Toolbar?: ComponentType<ToolbarProps> }
-  /** Drop the `herald` class so none of the default stylesheet applies. */
-  unstyled?: boolean
+export interface UsePromptEditorOptions {
+  views: ViewSet
+  /** Class names for the editor's own parts (headings, chips, sections, drag handles). */
+  classes?: EditorClasses
   /** Makes Enter submit (Shift+Enter for a new line), as in a chat input. An open menu still gets Enter first. */
   onSubmit?: (doc: HeraldDoc) => void
 }
 
-export function PromptEditor(props: PromptEditorProps) {
-  const { editor, className, style, classNames, components, unstyled } = props
-  const host = useRef<HTMLDivElement>(null)
+/**
+ * Mounts the editor into `ref` and tracks the menu and toolbar. Put `ref` on an empty div, and stop `mousedown` from
+ * taking focus on the menu and toolbar elements (`onMouseDown={(e) => e.preventDefault()}`).
+ */
+export function usePromptEditor(
+  editor: HeraldEditor,
+  options: UsePromptEditorOptions,
+): { ref: RefObject<HTMLDivElement | null>; menu: MenuState | null; toolbar: ToolbarState | null } {
+  const ref = useRef<HTMLDivElement>(null)
   const [trig, setTrig] = useState<TriggerState | null>(null)
   const [selection, setSelection] = useState<SelectionState | null>(null)
   const menuKeys = useRef<((e: KeyboardEvent) => boolean) | null>(null)
-  const onSubmit = useRef(props.onSubmit)
-  onSubmit.current = props.onSubmit
+  const latest = useRef(options)
+  latest.current = options
   // Escape closes the menu until the user starts a new trigger somewhere else
   const dismissed = useRef<number | null>(null)
-  const scope = unstyled ? "" : "herald"
 
   useEffect(() => {
-    const el = host.current!
     const { schema, views } = editor
-    editor.adapter.mount(el, editor.getDoc(), {
+    const set = () => latest.current.views
+    editor.adapter.mount(ref.current!, editor.getDoc(), {
       triggers: editor.triggers.map((t) => t.trigger),
+      classes: latest.current.classes,
       onChange: (doc) => editor.changed(doc),
       onTrigger: (t) => {
         // a dismissal only lasts while that same trigger is still being typed
@@ -157,20 +192,21 @@ export function PromptEditor(props: PromptEditorProps) {
         if (menuKeys.current?.(e)) {
           return true
         }
-        if (onSubmit.current && e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-          onSubmit.current(editor.getDoc())
+        const onSubmit = latest.current.onSubmit
+        if (onSubmit && e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+          onSubmit(editor.getDoc())
           return true
         }
         return false
       },
       renderInline: (node, target) => {
-        const View = views.inline?.[node.type] ?? MentionChip
+        const View = views.inline?.[node.type] ?? set().inline
         const root = createRoot(target)
         root.render(<View node={node} kind={schema.mentionKinds.get(String(node.attrs?.kind))} />)
         return () => unmountLater(root)
       },
       renderBlock: (node, target, update) => {
-        const View = views.block?.[node.type] ?? DEFAULT_BLOCKS[node.type] ?? JsonBlock
+        const View = views.block?.[node.type] ?? set().blocks[node.type] ?? set().blocks.default
         const root = createRoot(target)
         const render = (n: HeraldNode) => root.render(<View node={n} update={update} />)
         render(node)
@@ -180,42 +216,25 @@ export function PromptEditor(props: PromptEditorProps) {
     return () => editor.adapter.destroy()
   }, [editor])
 
-  const Menu = components?.Menu ?? SuggestionMenu
-  const Toolbar = components?.Toolbar ?? SelectionToolbar
-  return (
-    <div
-      className={[scope && "herald-editor", className, classNames?.root].filter(Boolean).join(" ")}
-      style={style}
-    >
-      <div ref={host} className={scope && "herald-editor-host"} />
-      {trig && (
-        <MenuHost
-          key={`${trig.trigger}:${trig.range.from}`}
-          editor={editor}
-          state={trig}
-          Menu={Menu}
-          className={[scope && "herald-floating herald-menu", classNames?.menu].filter(Boolean).join(" ")}
-          keys={menuKeys}
-          close={() => setTrig(null)}
-          dismiss={() => {
-            dismissed.current = trig.range.from
-            setTrig(null)
-          }}
-        />
-      )}
-      {selection && !selection.empty && editor.schema.toolbar.length > 0 &&
-        createPortal(
-          <div
-            className={[scope && "herald-floating herald-toolbar", classNames?.toolbar].filter(Boolean).join(" ")}
-            style={{ position: "fixed", left: selection.rect.left, top: selection.rect.top - 8, transform: "translateY(-100%)" }}
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            <Toolbar editor={editor} marks={selection.marks} />
-          </div>,
-          document.body,
-        )}
-    </div>
-  )
+  const menu = useMenu(editor, trig, menuKeys, {
+    close: () => setTrig(null),
+    dismiss: () => {
+      dismissed.current = trig?.range.from ?? null
+      setTrig(null)
+    },
+  })
+
+  const toolbar: ToolbarState | null =
+    selection && !selection.empty && editor.schema.toolbar.length > 0
+      ? {
+          items: editor.schema.toolbar,
+          marks: selection.marks,
+          style: { position: "fixed", left: selection.rect.left, top: selection.rect.top - 8, transform: "translateY(-100%)" },
+          toggle: (mark) => editor.adapter.toggleMark(mark),
+        }
+      : null
+
+  return { ref, menu, toolbar }
 }
 
 // React warns when a root unmounts while CodeMirror is mid-update; defer it.
@@ -223,42 +242,39 @@ function unmountLater(root: Root) {
   queueMicrotask(() => root.unmount())
 }
 
-// matches .herald-menu max-height in styles.css
-const MENU_MAX_HEIGHT = 300
+/** Menus are assumed to be at most this tall when deciding to open upward. */
+export const MENU_MAX_HEIGHT = 300
 
-const DEFAULT_BLOCKS: Record<string, ComponentType<BlockViewProps>> = {
-  inputs: FieldsBlock,
-  outputShape: FieldsBlock,
-}
-
-function MenuHost(props: {
-  editor: HeraldEditor
-  state: TriggerState
-  Menu: ComponentType<MenuProps>
-  className: string
-  keys: { current: ((e: KeyboardEvent) => boolean) | null }
-  /** After picking an item. */
-  close(): void
-  /** Escape: keep this trigger closed while it's still being typed. */
-  dismiss(): void
-}) {
-  const { editor, state, Menu, keys, close, dismiss } = props
+function useMenu(
+  editor: HeraldEditor,
+  trig: TriggerState | null,
+  keys: { current: ((e: KeyboardEvent) => boolean) | null },
+  { close, dismiss }: { close(): void; dismiss(): void },
+): MenuState | null {
   const [items, setItems] = useState<SuggestionItem[]>([])
   const [loading, setLoading] = useState(true)
   const [active, setActive] = useState(0)
-  const def = editor.triggers.find((t) => t.trigger === state.trigger)
+  const key = trig ? `${trig.trigger}:${trig.range.from}` : null
+  const def = trig ? editor.triggers.find((t) => t.trigger === trig.trigger) : undefined
+
+  // a new trigger starts with an empty list
+  useEffect(() => {
+    setItems([])
+    setActive(0)
+    setLoading(true)
+  }, [key])
 
   useEffect(() => {
-    if (!def) {
+    if (!trig || !def) {
       return
     }
     const controller = new AbortController()
     setLoading(true)
-    const q = state.query.toLowerCase()
+    const q = trig.query.toLowerCase()
     const result =
       def.items === "slash"
         ? editor.schema.slash.filter((i) => i.label.toLowerCase().includes(q) || i.id.includes(q))
-        : def.items(state.query, { doc: editor.getDoc(), signal: controller.signal })
+        : def.items(trig.query, { doc: editor.getDoc(), signal: controller.signal })
     Promise.resolve(result).then((next) => {
       if (!controller.signal.aborted) {
         setItems(next)
@@ -267,138 +283,100 @@ function MenuHost(props: {
       }
     })
     return () => controller.abort()
-  }, [def, state.query])
+  }, [key, trig?.query])
 
   const select = (item: SuggestionItem) => {
-    editor.adapter.insert(item.insert(), state.range)
+    editor.adapter.insert(item.insert(), trig!.range)
     close()
   }
 
-  keys.current = (e) => {
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      const step = e.key === "ArrowDown" ? 1 : -1
-      setActive((a) => (items.length ? (a + step + items.length) % items.length : 0))
-      return true
-    }
-    if ((e.key === "Enter" || e.key === "Tab") && items[active]) {
-      select(items[active]!)
-      return true
-    }
-    if (e.key === "Escape") {
-      dismiss()
-      return true
-    }
-    return false
-  }
-  useEffect(() => () => void (keys.current = null), [])
+  keys.current = trig
+    ? (e) => {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          const step = e.key === "ArrowDown" ? 1 : -1
+          setActive((a) => (items.length ? (a + step + items.length) % items.length : 0))
+          return true
+        }
+        if ((e.key === "Enter" || e.key === "Tab") && items[active]) {
+          select(items[active]!)
+          return true
+        }
+        if (e.key === "Escape") {
+          dismiss()
+          return true
+        }
+        return false
+      }
+    : null
 
-  if (!loading && items.length === 0) {
+  if (!trig || (!loading && items.length === 0)) {
     return null
   }
   // opens upward when there's no room below, e.g. a chat input docked at the bottom
   // shortcut: no horizontal flip or collision handling; use floating-ui if menus end up near the right edge.
-  const above = window.innerHeight - state.rect.bottom < MENU_MAX_HEIGHT + 8 && state.rect.top > MENU_MAX_HEIGHT + 8
-  const position: CSSProperties = above
-    ? { position: "fixed", left: state.rect.left, bottom: window.innerHeight - state.rect.top + 4 }
-    : { position: "fixed", left: state.rect.left, top: state.rect.bottom + 4 }
-  return createPortal(
-    <div
-      className={props.className}
-      data-placement={above ? "top" : "bottom"}
-      style={position}
-      onMouseDown={(e) => e.preventDefault()}
-    >
-      <Menu
-        items={items}
-        active={active}
-        loading={loading}
-        query={state.query}
-        kinds={editor.schema.mentionKinds}
-        onHover={setActive}
-        onSelect={select}
-      />
-    </div>,
-    document.body,
-  )
-}
-
-export function SuggestionMenu({ items, active, loading, kinds, onHover, onSelect }: MenuProps) {
-  if (loading && items.length === 0) {
-    return <div className="herald-menu-empty">loading…</div>
+  const above = window.innerHeight - trig.rect.bottom < MENU_MAX_HEIGHT + 8 && trig.rect.top > MENU_MAX_HEIGHT + 8
+  return {
+    trigger: trig.trigger,
+    query: trig.query,
+    items,
+    active,
+    loading,
+    placement: above ? "top" : "bottom",
+    style: above
+      ? { position: "fixed", left: trig.rect.left, bottom: window.innerHeight - trig.rect.top + 4 }
+      : { position: "fixed", left: trig.rect.left, top: trig.rect.bottom + 4 },
+    kinds: editor.schema.mentionKinds,
+    setActive,
+    select,
   }
-  return (
-    <ul role="listbox" className="herald-menu-list">
-      {items.map((item, i) => {
-        const kind = item.kind ? kinds.get(item.kind) : undefined
-        return (
-          <li
-            key={item.id}
-            role="option"
-            aria-selected={i === active}
-            data-active={i === active || undefined}
-            className="herald-menu-item"
-            onMouseEnter={() => onHover(i)}
-            onClick={() => onSelect(item)}
-          >
-            {kind && <span className="herald-dot" style={{ "--herald-kind-color": kind.color } as CSSProperties} />}
-            <span className="herald-menu-label">{item.label}</span>
-            {(item.detail ?? kind?.label) && <span className="herald-menu-detail">{item.detail ?? kind?.label}</span>}
-          </li>
-        )
-      })}
-    </ul>
-  )
 }
 
-export function SelectionToolbar({ editor, marks }: ToolbarProps) {
-  return (
-    <>
-      {editor.schema.toolbar.map((t) => (
-        <button
-          key={t.mark}
-          type="button"
-          title={t.title}
-          aria-pressed={marks.includes(t.mark)}
-          data-mark={t.mark}
-          className="herald-toolbar-button"
-          onClick={() => editor.adapter.toggleMark(t.mark)}
-        >
-          {t.label}
-        </button>
-      ))}
-    </>
-  )
+/** State for an editor of typed fields (the `inputs` and `outputShape` blocks). */
+export function useFields({ node, update }: BlockViewProps) {
+  const incoming = (Array.isArray(node.attrs?.fields) ? node.attrs.fields : []) as unknown as Field[]
+  // local copy so typing isn't reset while the change round-trips through the document
+  const [fields, setFields] = useState(incoming)
+  const key = JSON.stringify(incoming)
+  useEffect(() => setFields(incoming), [key])
+
+  const write = (next: Field[]) => {
+    setFields(next)
+    update({ ...node, attrs: { ...node.attrs, fields: next as never } })
+  }
+  return {
+    fields,
+    types: FIELD_TYPES,
+    patch: (i: number, change: Partial<Field>) => write(fields.map((f, j) => (j === i ? { ...f, ...change } : f))),
+    add: () => write([...fields, { name: `field_${fields.length + 1}`, type: "string" as FieldType }]),
+    remove: (i: number) => write(fields.filter((_, j) => j !== i)),
+  }
 }
 
-export interface InspectorProps {
-  editor: HeraldEditor
-  compile?: CompileOptions
-  diagnose?: DiagnoseOptions
-  className?: string
-}
+export const INSPECTOR_TABS = ["prompt", "json", "markdown", "collected", "diagnostics"] as const
+export type InspectorTab = (typeof INSPECTOR_TABS)[number]
 
-const TABS = ["prompt", "json", "markdown", "collected", "diagnostics"] as const
-
-/** Shows what the editor produces: the compiled prompt, the JSON state, its markdown, collected values and diagnostics. */
-export function Inspector({ editor, compile, diagnose, className }: InspectorProps) {
+/**
+ * What the editor produces: compiled prompt, JSON, markdown, collected values and diagnostics, as text per tab.
+ * Pass `compile`/`diagnose` options that are stable across renders.
+ */
+export function useInspector(editor: HeraldEditor, options: { compile?: CompileOptions; diagnose?: DiagnoseOptions } = {}) {
   const doc = useDoc(editor)
-  const [tab, setTab] = useState<(typeof TABS)[number]>("prompt")
   const [result, setResult] = useState<CompileResult | { error: string } | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
     editor.schema
-      .compile(doc, { ...compile, signal: controller.signal })
+      .compile(doc, { ...options.compile, signal: controller.signal })
       .then((r) => !controller.signal.aborted && setResult(r))
       .catch((e: unknown) => !controller.signal.aborted && setResult({ error: String(e) }))
     return () => controller.abort()
-  }, [doc, compile])
+  }, [doc, options.compile])
 
   const diagnostics: Diagnostic[] = [
-    ...editor.schema.diagnose(doc, diagnose),
+    ...editor.schema.diagnose(doc, options.diagnose),
     ...(result && "diagnostics" in result ? result.diagnostics : []),
   ]
-  const body = () => {
+  const text = (tab: InspectorTab): string => {
     switch (tab) {
       case "prompt":
         return result ? ("error" in result ? result.error : result.prompt) : "compiling…"
@@ -412,17 +390,5 @@ export function Inspector({ editor, compile, diagnose, className }: InspectorPro
         return diagnostics.length ? diagnostics.map((d) => `${d.code}  ${d.message}`).join("\n") : "no problems"
     }
   }
-  return (
-    <div className={["herald-inspector", className].filter(Boolean).join(" ")}>
-      <div role="tablist" className="herald-inspector-tabs">
-        {TABS.map((t) => (
-          <button key={t} type="button" role="tab" aria-selected={t === tab} onClick={() => setTab(t)}>
-            {t}
-            {t === "diagnostics" && diagnostics.length > 0 && <span className="herald-count">{diagnostics.length}</span>}
-          </button>
-        ))}
-      </div>
-      <pre className="herald-inspector-body">{body()}</pre>
-    </div>
-  )
+  return { doc, diagnostics, text }
 }
