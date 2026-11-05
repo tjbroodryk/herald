@@ -21,7 +21,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./styles.css": "./dist/styles.css"
+    "./styles.css": {
+      "bun": "./src/styles.css",
+      "default": "./dist/styles.css"
+    }
   },
   "scripts": {
     "build": "rm -rf dist && bun build src/index.tsx --outdir dist --format esm --target browser --packages external && tsc -p tsconfig.build.json && cp src/styles.css dist/styles.css"
