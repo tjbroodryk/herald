@@ -10,7 +10,8 @@ import { initialPrompt } from "./data"
 import { Nav, ThemeToggle } from "./chrome"
 import { compileOptions, diagnoseOptions, mention, mentionItems } from "./mentions"
 
-const schema = createSchema([starterKit(), mention, section, agentInputs(), outputShape()])
+const inputs = agentInputs()
+const schema = createSchema([starterKit(), mention, section, inputs, outputShape()])
 
 function App() {
   const editor = useEditor({
@@ -22,7 +23,7 @@ function App() {
       trigger("@", { items: mentionItems }),
       trigger("{{", {
         items: (q, { doc }) =>
-          agentInputs
+          inputs
             .get(doc)
             .filter((f) => f.name.includes(q))
             .map((f) => ({

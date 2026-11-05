@@ -2,7 +2,7 @@
 
 A prompt editor for LLM apps: `@` mentions, `/` commands, typed agent inputs and output shapes. It compiles what people write into a prompt and gives you typed queries over it ("every tool this prompt mentions").
 
-Live demo: https://tjbroodryk.github.io/herald/ (prompt editor and chat input).
+Live demo: https://tjbroodryk.github.io/herald/ (prompt editor, chat input, and the shadcn version).
 
 Not published yet. To try it, clone the repo and run the playground (see Developing below).
 
@@ -14,13 +14,17 @@ Not published yet. To try it, clone the repo and run the playground (see Develop
 | `packages/markdown` | markdown codec, parser, serializer | core, `@lezer/markdown` |
 | `packages/agent` | `agentInputs`, `outputShape`, `toolKind` | core |
 | `packages/codemirror` | the CodeMirror editor adapter | core, markdown, CodeMirror (peer) |
-| `packages/react` | `PromptEditor`, menus, toolbar, `Inspector`, `DocView`, default `styles.css` | core, markdown, agent, React (peer) |
+| `packages/react` | headless hooks: `useEditor`, `usePromptEditor`, `useFields`, `useInspector`, `DocView` | core, markdown, agent, React (peer) |
+| `packages/ui` | the ready-styled look: `PromptEditor`, `Inspector`, `DocView` and `styles.css` | react |
+| `packages/shadcn` | the shadcn registry: the same components as Tailwind source you copy into your app | react |
 
-Only the editor adapter depends on an editor engine. The React package talks to the editor only through `EditorAdapter`, so it works the same with the CodeMirror adapter or a future ProseMirror one.
+Only the editor adapter depends on an editor engine. Everything above it talks to the editor through `EditorAdapter`, so it works the same with the CodeMirror adapter or a future ProseMirror one.
 
 The doc is plain JSON in the same shape as ProseMirror/TipTap (`{ type, attrs, content, marks, text }`), so a server can read, query and compile it without an editor.
 
 ## Define a schema
+
+A schema is a list of plugins. Mention kinds are yours to name: each key you pass to `mentions` becomes a kind, stored in the JSON as `kind: "<key>"`. `toolKind()` is a ready-made definition for tools; nothing else is built in.
 
 ```ts
 import { createSchema, mentions, section, starterKit } from "@herald/core"
@@ -31,11 +35,16 @@ export const mention = mentions({
   user: { label: "User", compile: (a) => `@${a.label} (user ${a.id})` },
   document: {
     label: "Document",
-    compile: async (a, ctx) => ctx.compileRef("document", a.id, a.label), // fetched, compiled recursively
+    // "document" here names a resolver you pass to compile (below)
+    compile: async (a, ctx) => ctx.compileRef("document", a.id, a.label),
   },
 })
 
-export const schema = createSchema([starterKit(), mention, section, agentInputs(), outputShape()])
+// agent plugins are opt-in; keep the instances to query docs with them
+export const inputs = agentInputs()
+export const output = outputShape()
+
+export const schema = createSchema([starterKit(), mention, section, inputs, output])
 ```
 
 A custom node is one definition: its attrs (any Standard Schema validator), how it compiles, and its `/` menu entry.
@@ -57,9 +66,9 @@ const doc = schema.parse(row.editor_state) // validates attrs, keeps unknown nod
 mention.tool.all(doc)          // [{ kind: "tool", id: "search_web", label: "Search web" }, …]
 find(doc, mention.user)        // the nodes
 replace(doc, mention.tool, (n) => …) // renames, returns a new doc
-agentInputs.get(doc)           // [{ name, type, description }]
-agentInputs.validate(doc, values) // ["ticket_id is required"]
-outputShape.jsonSchema(doc)    // JSON Schema for structured output
+inputs.get(doc)                // [{ name, type, description }]
+inputs.validate(doc, values)   // ["ticket_id is required"]
+output.jsonSchema(doc)         // JSON Schema for structured output
 schema.diagnose(doc, { tools: knownToolIds }) // unknown tools, undeclared inputs, bad attrs…
 ```
 
@@ -93,7 +102,7 @@ markdown.decode(text) // doc; decode(encode(doc)) equals normalize(doc)
 Herald's markdown adds three things to CommonMark:
 
 ```md
-Use @[Search web](tool:search_web) and :inputRef[customer]{name="customer_id"}.
+Use @[Search web](tool:search_web), and a custom inline node: :badge[beta]{tone="info"}.
 
 :::section{title="Rules" color="amber"}
 Blocks with content are directives.
@@ -108,12 +117,13 @@ Any node type without its own syntax gets one of these forms, so a custom node r
 
 One departure from CommonMark: every newline inside a paragraph is a line break (`hardBreak`), not a space. A prompt keeps the lines the person typed.
 
-## React
+## React: one engine, three ways to render it
+
+All three share the same editor setup:
 
 ```tsx
 import { codemirror } from "@herald/codemirror"
-import { Inspector, PromptEditor, trigger, useEditor } from "@herald/react"
-import "@herald/react/styles.css"
+import { trigger, useEditor } from "@herald/react"
 
 const editor = useEditor({
   schema,
@@ -125,12 +135,40 @@ const editor = useEditor({
     trigger("@", { items: async (q) => (await searchTools(q)).map((t) => mention.tool.item({ id: t.id, label: t.name })) }),
   ],
 })
+```
+
+**Ready-styled (`@herald/ui`).** Plain CSS classes, themed with `--herald-*` variables.
+
+```tsx
+import { Inspector, PromptEditor } from "@herald/ui"
+import "@herald/ui/styles.css"
 
 <PromptEditor editor={editor} />
 <Inspector editor={editor} compile={compileOptions} /> // prompt, JSON, markdown, collected values, diagnostics
 ```
 
+- Dark mode follows the system; `data-theme="dark"|"light"` on any ancestor overrides it.
+- Restyle with variables: `--herald-font`, `--herald-accent`, `--herald-radius`, `--herald-color-tool`… (see the top of `styles.css`; `example/app.css` maps them onto a design system).
+- All defaults live in `@layer herald`, so your own CSS wins without `!important`.
+- `classNames`, `components={{ Menu, Toolbar }}` and `useEditor({ views })` replace parts.
+
+**shadcn (`packages/shadcn`).** The same components as Tailwind source, using your shadcn theme tokens (`bg-popover`, `text-muted-foreground`, `ring`, `--radius`) and `cn()`. Add them with the shadcn CLI and they're files in your app:
+
+```sh
+npx shadcn add https://tjbroodryk.github.io/herald/r/herald-prompt-editor.json
+npx shadcn add https://tjbroodryk.github.io/herald/r/herald-inspector.json
+npx shadcn add https://tjbroodryk.github.io/herald/r/herald-doc-view.json
+```
+
+The editor's own parts (headings, chips, sections, drag handles) are styled by the `editorClasses` map at the top of `herald-prompt-editor.tsx`. The mention colours come from `--herald-color-*` variables the registry item adds to your theme, mapped to your chart colours. The components install the `@herald/*` packages as dependencies, so the CLI only works once those are published. `example/shadcn.tsx` uses the registry source directly.
+
+**Headless (`@herald/react`).** The behaviour without markup, for building your own look. `usePromptEditor(editor, { views, classes, onSubmit })` mounts the editor and returns `{ ref, menu, toolbar }`: put `ref` on an empty div, and render `menu.items` and `toolbar.items` however you like, positioned with the `style` each provides. `useFields` drives the inputs and output-shape blocks, and `useInspector` the inspector. Both styled packages are built this way.
+
+### Inspector
+
 `Inspector` is meant for your own app too: drop it next to the editor while building, to see exactly what the model will get. Pass `compile`/`diagnose` options that are stable across renders (module constants or `useMemo`).
+
+### Moving blocks
 
 Top-level blocks get a drag handle, and ⌥⇧↑/↓ moves the block under the cursor. A section moves with everything in it; nothing can be dropped inside a section or list. Turn it off with `codemirror({ draggable: false })`.
 
@@ -156,13 +194,6 @@ const editor = useEditor({
 
 `example/chat.tsx` has the whole thing, with `/` commands as a mention kind (`prefix: "/"`) that compile into a task line at the top of the prompt. Menus open upward when there's no room below.
 
-### Styling
-
-- Import `styles.css` and you're done. Dark mode follows the system; `data-theme="dark"|"light"` on any ancestor overrides it.
-- Restyle with variables: `--herald-font`, `--herald-accent`, `--herald-radius`, `--herald-color-tool`… (see the top of `styles.css`; `example/app.css` maps them onto a design system).
-- All defaults live in `@layer herald`, so your own CSS wins without `!important`. With Tailwind v4, declare `@layer herald, theme, base, components, utilities;`.
-- `classNames`, `components={{ Menu, Toolbar }}` and `views={{ inline, block }}` replace parts; `unstyled` drops the stylesheet's hooks entirely.
-
 ## Known limits
 
 - Bold, italic and strike can't open next to punctuation inside a word in markdown (`a**-b**`), so that case doesn't survive a markdown round trip. Normal word-boundary formatting does.
@@ -175,16 +206,17 @@ const editor = useEditor({
 
 ```sh
 bun install
-bun run example   # playground at http://localhost:3000 and /chat.html
+bun run example     # playground at http://localhost:3000, /chat.html and /shadcn.html
 bun test
 bun check
-bun run build     # packages/*/dist: ESM + .d.ts (+ styles.css), built in dependency order
+bun run build       # packages/*/dist: ESM + .d.ts (+ styles.css), built in dependency order
+bun run build:site  # site/: the three example pages and the shadcn registry JSON at site/r/
 ```
 
-The packages are Bun workspaces. Inside the repo, imports between them resolve to source through `paths` in `tsconfig.json`, so tests and the example need no build.
+The packages are Bun workspaces. Inside the repo, imports between them resolve to source through `paths` in `tsconfig.json`, so tests and the example need no build. The same `paths` resolve the registry files' `@/lib/utils` and `@/registry/herald/*` imports, which the shadcn CLI rewrites to your aliases on install.
 
 ## CI and the demo site
 
 - `ci.yml`: type checks, tests, the package build and the site build on every push and pull request.
-- `pages.yml`: builds the examples (`bun run build:site`) and deploys them to GitHub Pages on every push to `main`.
+- `pages.yml`: builds the site (`bun run build:site`) and deploys it to GitHub Pages on every push to `main`, which also serves the shadcn registry.
 - `release.yml`: ready for when the packages are published; it runs only on a `v*` tag, and no tags exist yet.

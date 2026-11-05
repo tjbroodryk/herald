@@ -14,7 +14,9 @@ const mention = mentions({
     },
   },
 })
-const schema = createSchema([starterKit(), mention, section, agentInputs(), outputShape()])
+const inputs = agentInputs()
+const output = outputShape()
+const schema = createSchema([starterKit(), mention, section, inputs, output])
 const md = (s: string) => markdown.decode(s)
 
 describe("compile", () => {
@@ -78,15 +80,15 @@ describe("compile", () => {
     const out = await schema.compile(doc)
     expect(out.prompt.startsWith("You are given these inputs as JSON:\n- `q` (string): the question\n\nAnswer `q` (input).")).toBe(true)
     expect(out.prompt).toContain("Return the following JSON structure:")
-    expect(outputShape.jsonSchema(doc)).toEqual({
+    expect(output.jsonSchema(doc)).toEqual({
       type: "object",
       properties: { answer: { type: "string" } },
       required: ["answer"],
       additionalProperties: false,
     })
-    expect(agentInputs.validate(doc, {})).toEqual(["q is required"])
-    expect(agentInputs.validate(doc, { q: 1 })).toEqual(["q should be string, got number"])
-    expect(agentInputs.validate(doc, { q: "why" })).toEqual([])
+    expect(inputs.validate(doc, {})).toEqual(["q is required"])
+    expect(inputs.validate(doc, { q: 1 })).toEqual(["q should be string, got number"])
+    expect(inputs.validate(doc, { q: "why" })).toEqual([])
   })
 })
 

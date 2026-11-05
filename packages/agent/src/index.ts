@@ -38,7 +38,24 @@ function duplicates(doc: HeraldNode, type: string): Diagnostic[] {
     .map((node) => ({ code: `duplicate-${type}`, message: `only the first ${type} block is used`, node }))
 }
 
-function agentInputsPlugin(options: { color?: string } = {}): Plugin {
+function inputFields(doc: HeraldNode): Field[] {
+  const first = find(doc, "inputs")[0]
+  return first ? fieldsOf(first) : []
+}
+
+export interface AgentInputsPlugin extends Plugin {
+  /** The declared input fields. */
+  get(doc: HeraldNode): Field[]
+  jsonSchema(doc: HeraldNode): JSONSchema
+  /** Checks runtime values against the declared inputs. Returns error messages; empty means valid. */
+  validate(doc: HeraldNode, values: Record<string, unknown>): string[]
+}
+
+/**
+ * Typed agent inputs: an `inputs` block, plus `input` mentions that refer to its fields. Keep the instance to query
+ * docs: `const inputs = agentInputs()`, `createSchema([..., inputs])`, `inputs.validate(doc, values)`.
+ */
+export function agentInputs(options: { color?: string } = {}): AgentInputsPlugin {
   const inputKind: MentionKind = {
     label: "Input",
     color: options.color ?? "var(--herald-color-input)",
@@ -69,43 +86,43 @@ function agentInputsPlugin(options: { color?: string } = {}): Plugin {
       },
     ],
     diagnose: (doc): Diagnostic[] => {
-      const declared = new Set(agentInputs.get(doc).map((f) => f.name))
+      const declared = new Set(inputFields(doc).map((f) => f.name))
       const undeclared = find(doc, { type: "mention", match: (n: HeraldNode) => n.attrs?.kind === "input" })
         .filter((n) => !declared.has(String(n.attrs?.id)))
         .map((node) => ({ code: "undeclared-input", message: `input "${node.attrs?.id}" is not declared`, node }))
       return [...duplicates(doc, "inputs"), ...undeclared]
     },
+    get: inputFields,
+    jsonSchema: (doc) => fieldsToJsonSchema(inputFields(doc)),
+    validate: validateInputs,
   }
 }
 
-/** Typed agent inputs: an `inputs` block, plus `input` mentions that refer to its fields. */
-export const agentInputs = Object.assign(agentInputsPlugin, {
-  get: (doc: HeraldNode): Field[] => {
-    const first = find(doc, "inputs")[0]
-    return first ? fieldsOf(first) : []
-  },
-  jsonSchema: (doc: HeraldNode): JSONSchema => fieldsToJsonSchema(agentInputs.get(doc)),
-  /** Checks runtime values against the declared inputs. Returns error messages; empty means valid. */
-  validate: (doc: HeraldNode, values: Record<string, unknown>): string[] => {
-    const errors: string[] = []
-    for (const f of agentInputs.get(doc)) {
-      const v = values[f.name]
-      if (v === undefined) {
-        if (f.required !== false) {
-          errors.push(`${f.name} is required`)
-        }
-        continue
+function validateInputs(doc: HeraldNode, values: Record<string, unknown>): string[] {
+  const errors: string[] = []
+  for (const f of inputFields(doc)) {
+    const v = values[f.name]
+    if (v === undefined) {
+      if (f.required !== false) {
+        errors.push(`${f.name} is required`)
       }
-      const actual = Array.isArray(v) ? "array" : v === null ? "null" : typeof v
-      if (actual !== f.type) {
-        errors.push(`${f.name} should be ${f.type}, got ${actual}`)
-      }
+      continue
     }
-    return errors
-  },
-})
+    const actual = Array.isArray(v) ? "array" : v === null ? "null" : typeof v
+    if (actual !== f.type) {
+      errors.push(`${f.name} should be ${f.type}, got ${actual}`)
+    }
+  }
+  return errors
+}
 
-function outputShapePlugin(): Plugin {
+export interface OutputShapePlugin extends Plugin {
+  /** JSON Schema for structured output, or undefined when the doc has no output shape. */
+  jsonSchema(doc: HeraldNode): JSONSchema | undefined
+}
+
+/** A JSON return type for the agent, compiled into the prompt and available as JSON Schema for structured output. */
+export function outputShape(): OutputShapePlugin {
   return {
     name: "outputShape",
     nodes: [
@@ -128,16 +145,12 @@ function outputShapePlugin(): Plugin {
       },
     ],
     diagnose: (doc) => duplicates(doc, "outputShape"),
+    jsonSchema: (doc) => {
+      const first = find(doc, "outputShape")[0]
+      return first ? fieldsToJsonSchema(fieldsOf(first)) : undefined
+    },
   }
 }
-
-/** A JSON return type for the agent, compiled into the prompt and available as JSON Schema for structured output. */
-export const outputShape = Object.assign(outputShapePlugin, {
-  jsonSchema: (doc: HeraldNode): JSONSchema | undefined => {
-    const first = find(doc, "outputShape")[0]
-    return first ? fieldsToJsonSchema(fieldsOf(first)) : undefined
-  },
-})
 
 /** Mention kind for tools: collects ids into `collected.tools`, lists them at the end, flags unknown ones. */
 export function toolKind(options: { color?: string } = {}): MentionKind {
