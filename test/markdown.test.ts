@@ -132,7 +132,7 @@ describe("round-trip property", () => {
   let seed = 7
   const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648)
   const pick = <T>(xs: T[]): T => xs[Math.floor(rand() * xs.length)]!
-  const words = ["alpha", "beta", "snake_case", "a*b", "[x]", "@[y]", "`tick`", "1.", "#", "&amp;", "back\\slash", "~", "<tag>", ":a[b]", "-", "x_", "ünï"]
+  const words = ["alpha", "beta", "a|b", "snake_case", "a*b", "[x]", "@[y]", "`tick`", "1.", "#", "&amp;", "back\\slash", "~", "<tag>", ":a[b]", "-", "x_", "ünï"]
 
   const text = (): string => Array.from({ length: 1 + Math.floor(rand() * 4) }, () => pick(words)).join(pick([" ", " ", ""]))
   const marks = (): HeraldMark[] => {
@@ -151,8 +151,24 @@ describe("round-trip property", () => {
       // spaces between runs, as people type them
       return { type: "text", text: text() + " ", marks: marks() }
     })
+  const table = (): HeraldNode => {
+    const columns = 1 + Math.floor(rand() * 3)
+    const align = Array.from({ length: columns }, () => pick([undefined, "left", "center", "right"]))
+    const row = (type: string) => ({
+      type: "tableRow",
+      content: align.map((a) => ({
+        type,
+        ...(a ? { attrs: { align: a } } : {}),
+        ...(rand() < 0.8 ? { content: [{ type: "paragraph", content: inline() }] } : {}),
+      })),
+    })
+    return { type: "table", content: [row("tableHeader"), ...Array.from({ length: Math.floor(rand() * 3) }, () => row("tableCell"))] }
+  }
   const block = (depth: number): HeraldNode => {
     const r = rand()
+    if (r > 0.94) {
+      return table()
+    }
     if (depth < 2 && r < 0.12) {
       return { type: pick(["bulletList", "orderedList"]), content: [listItem(depth), listItem(depth)] }
     }
@@ -191,5 +207,56 @@ describe("round-trip property", () => {
       }
     }
     expect(failures.slice(0, 5)).toEqual([])
+  })
+})
+
+describe("tables", () => {
+  test("parse alignment, empty cells, escaped pipes and rich cells", () => {
+    const doc = markdown.decode("| Tool | Notes | |\n| :--- | :-: | ---: |\n| @[CRM](tool:crm) | `a\\|b` and **x \\| y** |\n")
+    const cells = (r: number) => doc.content![0]!.content![r]!.content!
+    expect(cells(0).map((c) => [c.type, c.attrs?.align])).toEqual([
+      ["tableHeader", "left"],
+      ["tableHeader", "center"],
+      ["tableHeader", "right"],
+    ])
+    expect(cells(1)[0]!.content![0]!.content![0]).toEqual({ type: "mention", attrs: { kind: "tool", id: "crm", label: "CRM" } })
+    expect(cells(1)[1]!.content![0]!.content).toEqual([
+      { type: "text", text: "a|b", marks: [{ type: "code" }] },
+      { type: "text", text: " and " },
+      { type: "text", text: "x | y", marks: [{ type: "bold" }] },
+    ])
+    // the short body row is padded to the header's width
+    expect(cells(1)[2]).toEqual({ type: "tableCell", attrs: { align: "right" } })
+    expect(markdown.decode(markdown.encode(doc))).toEqual(doc)
+  })
+
+  test("TipTap-shaped tables normalize to the markdown-able form", () => {
+    const tiptap: HeraldDoc = {
+      type: "doc",
+      content: [
+        {
+          type: "table",
+          content: [
+            {
+              type: "tableRow",
+              content: [
+                { type: "tableCell", attrs: { colspan: 1, rowspan: 1, colwidth: null }, content: [{ type: "paragraph", content: [{ type: "text", text: "a" }] }, { type: "paragraph", content: [{ type: "text", text: "b" }] }] },
+              ],
+            },
+            { type: "tableRow", content: [{ type: "tableCell", content: [{ type: "paragraph" }] }, { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "c" }] }] }] },
+          ],
+        },
+      ],
+    }
+    const doc = normalize(tiptap)
+    expect(doc.content![0]).toEqual({
+      type: "table",
+      content: [
+        { type: "tableRow", content: [{ type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "a b" }] }] }, { type: "tableHeader" }] },
+        { type: "tableRow", content: [{ type: "tableCell" }, { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "c" }] }] }] },
+      ],
+    })
+    expect(markdown.encode(doc)).toBe("| a b |  |\n| --- | --- |\n|  | c |\n")
+    expect(markdown.decode(markdown.encode(doc))).toEqual(doc)
   })
 })

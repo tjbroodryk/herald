@@ -16,7 +16,10 @@
       "@herald/react": ["./packages/react/src/index.tsx"],
       "@herald/ui": ["./packages/ui/src/index.tsx"],
       "@herald/ui/styles.css": ["./packages/ui/src/styles.css"],
-      "@herald/*": ["./packages/*/src/index.ts"]
+      "@herald/*": ["./packages/*/src/index.ts"],
+      // the shadcn registry source imports the way installed shadcn files do
+      "@/lib/utils": ["./packages/shadcn/lib/utils.ts"],
+      "@/registry/herald/*": ["./packages/shadcn/registry/herald/*"]
     },
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,

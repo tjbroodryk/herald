@@ -1,9 +1,9 @@
 import { assertDoc, HeraldParseError } from "./codec"
-import { Compilation, type CompileContext, type CompileOptions, type CompileResult } from "./compile"
+import { Compilation, type CompileContext, type CompileMode, type CompileOptions, type CompileResult, type HoistSlot } from "./compile"
 import { normalize } from "./normalize"
 import { validateSync, type StandardSchemaV1 } from "./standard-schema"
 import { find, walk } from "./traversal"
-import type { Attrs, Diagnostic, HeraldDoc, HeraldMark, HeraldNode, JSONValue } from "./types"
+import { DiagnosticCode, NodeType, type Attrs, type Diagnostic, type HeraldDoc, type HeraldMark, type HeraldNode, type JSONValue } from "./types"
 
 export type NodeCompiler<A = Attrs> = (
   node: HeraldNode & { attrs: A },
@@ -20,7 +20,7 @@ export interface NodeDef<A extends Record<string, unknown> = Attrs> {
 
 export interface MarkDef {
   type: string
-  compile?: (text: string, mark: HeraldMark, mode: "markdown" | "plain") => string
+  compile?: (text: string, mark: HeraldMark, mode: CompileMode) => string
 }
 
 /** One row in a `/` or `@` menu. */
@@ -48,7 +48,7 @@ export interface MentionAttrs {
 
 export interface FinalizeContext {
   collected: Record<string, unknown[]>
-  hoist(slot: "header" | "footer", text: string): void
+  hoist(slot: HoistSlot, text: string): void
 }
 
 export type DiagnoseOptions = Record<string, unknown>
@@ -68,6 +68,16 @@ export interface MentionKind {
   diagnose?: (attrs: MentionAttrs, options: DiagnoseOptions) => string | undefined
 }
 
+/** Clipboard formats paste rules can read. */
+export const PasteMime = { Html: "text/html", Text: "text/plain" } as const
+export type PasteMime = (typeof PasteMime)[keyof typeof PasteMime]
+
+/** Turns one clipboard format into nodes. Return null to let the next rule (or the editor's own paste) handle it. */
+export interface PasteRule {
+  mime: PasteMime | (string & {})
+  parse(data: string): HeraldNode[] | null
+}
+
 export interface Plugin {
   name: string
   nodes?: NodeDef<any>[]
@@ -75,6 +85,8 @@ export interface Plugin {
   mentionKinds?: Record<string, MentionKind>
   slash?: SuggestionItem[]
   toolbar?: ToolbarItem[]
+  /** Tried in plugin order on paste; the first rule that returns nodes wins. */
+  paste?: PasteRule[]
   diagnose?: (doc: HeraldDoc, options: DiagnoseOptions) => Diagnostic[]
   finalize?: (ctx: FinalizeContext) => void
 }
@@ -89,6 +101,7 @@ export class Schema {
   readonly mentionKinds = new Map<string, MentionKind>()
   readonly slash: SuggestionItem[] = []
   readonly toolbar: ToolbarItem[] = []
+  readonly paste: PasteRule[] = []
 
   constructor(readonly plugins: Plugin[]) {
     for (const p of plugins) {
@@ -97,7 +110,20 @@ export class Schema {
       Object.entries(p.mentionKinds ?? {}).forEach(([k, v]) => this.mentionKinds.set(k, v))
       this.slash.push(...(p.slash ?? []))
       this.toolbar.push(...(p.toolbar ?? []))
+      this.paste.push(...(p.paste ?? []))
     }
+  }
+
+  /** Runs the paste rules against clipboard data. Null means no rule took it. */
+  parsePaste(data: { getData(mime: string): string }): HeraldNode[] | null {
+    for (const rule of this.paste) {
+      const text = data.getData(rule.mime)
+      const nodes = text ? rule.parse(text) : null
+      if (nodes?.length) {
+        return nodes
+      }
+    }
+    return null
   }
 
   /** Untrusted JSON in, a checked and normalized doc out. Throws HeraldParseError on bad attrs. */
@@ -127,22 +153,22 @@ export class Schema {
       const attrs = node.attrs as unknown as MentionAttrs
       const kind = this.mentionKinds.get(attrs.kind)
       if (!kind) {
-        out.push({ code: "unknown-mention-kind", message: `no mention kind "${attrs.kind}"`, node })
+        out.push({ code: DiagnosticCode.UnknownMentionKind, message: `no mention kind "${attrs.kind}"`, node })
         continue
       }
       const message = kind.diagnose?.(attrs, options)
       if (message) {
-        out.push({ code: `invalid-${attrs.kind}`, message, node })
+        out.push({ code: DiagnosticCode.InvalidMention, message, node })
       }
     }
     walk(doc, (node) => {
       const def = this.nodes.get(node.type)
       if (!def && !NATIVE_TYPES.has(node.type)) {
-        out.push({ code: "unknown-node", message: `no plugin defines "${node.type}"; kept as-is`, node })
+        out.push({ code: DiagnosticCode.UnknownNode, message: `no plugin defines "${node.type}"; kept as-is`, node })
       } else if (def?.attrs) {
         const result = validateSync(def.attrs, node.attrs ?? {})
         if ("error" in result) {
-          out.push({ code: "invalid-attrs", message: `${node.type}: ${result.error}`, node })
+          out.push({ code: DiagnosticCode.InvalidAttrs, message: `${node.type}: ${result.error}`, node })
         }
       }
     })
@@ -153,20 +179,7 @@ export class Schema {
   }
 }
 
-export const NATIVE_TYPES = new Set([
-  "doc",
-  "paragraph",
-  "heading",
-  "bulletList",
-  "orderedList",
-  "listItem",
-  "blockquote",
-  "codeBlock",
-  "horizontalRule",
-  "hardBreak",
-  "text",
-  "mention",
-])
+export const NATIVE_TYPES = new Set<string>(Object.values(NodeType))
 
 export function createSchema(plugins: Plugin[]): Schema {
   return new Schema(plugins)

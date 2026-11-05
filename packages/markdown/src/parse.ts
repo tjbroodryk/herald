@@ -1,8 +1,11 @@
 import type { SyntaxNode } from "@lezer/common"
 import {
+  EditorPart,
+  MarkType,
+  NodeType,
+  TableAlign,
   normalize,
   type Attrs,
-  type EditorClassKey,
   type HeraldDoc,
   type HeraldMark,
   type HeraldNode,
@@ -11,19 +14,38 @@ import {
 import { parseAttrs } from "./attrs"
 import { DIRECTIVE_OPEN, INLINE_DIRECTIVE, MENTION, markdownParser } from "./syntax"
 
+export const SpanKind = {
+  /** Syntax hidden until the cursor is in `reveal`. */
+  Hide: "hide",
+  /** A styled stretch of text. */
+  Style: "style",
+  /** Every line in the range gets the style. */
+  Lines: "lines",
+  /** Text replaced by a label until the cursor is in `reveal`. */
+  Label: "label",
+  /** Text replaced by a rendered node (chip or block). */
+  Atom: "atom",
+  /** A top-level block, the unit drag-and-drop moves. */
+  Block: "block",
+  /** A block drawn as its rendered node (a table) until the cursor is in `reveal`; then its source shows. */
+  Preview: "preview",
+} as const
+export type SpanKind = (typeof SpanKind)[keyof typeof SpanKind]
+
 /**
  * What an editor needs to draw rich text over the markdown source. Positions are offsets into the text.
  * `reveal` is the range where the hidden syntax comes back while the cursor is inside it.
- * `key` names the styled part (an EditorClassKey); the UI layer decides its class name.
+ * `key` names the styled part (an EditorPart); the UI layer decides its class name.
  */
 export type Span =
-  | { kind: "hide"; from: number; to: number; reveal: Range }
-  | { kind: "style"; from: number; to: number; key: EditorClassKey }
-  | { kind: "lines"; from: number; to: number; key: EditorClassKey; attrs?: Record<string, string> }
-  | { kind: "label"; from: number; to: number; text: string; key: EditorClassKey; reveal: Range }
-  | { kind: "atom"; from: number; to: number; node: HeraldNode; block: boolean }
+  | { kind: typeof SpanKind.Hide; from: number; to: number; reveal: Range }
+  | { kind: typeof SpanKind.Style; from: number; to: number; key: EditorPart }
+  | { kind: typeof SpanKind.Lines; from: number; to: number; key: EditorPart; attrs?: Record<string, string> }
+  | { kind: typeof SpanKind.Label; from: number; to: number; text: string; key: EditorPart; reveal: Range }
+  | { kind: typeof SpanKind.Atom; from: number; to: number; node: HeraldNode; block: boolean }
   /** A top-level block: the unit that drag-and-drop moves. */
-  | { kind: "block"; from: number; to: number; node: HeraldNode }
+  | { kind: typeof SpanKind.Block; from: number; to: number; node: HeraldNode }
+  | { kind: typeof SpanKind.Preview; from: number; to: number; node: HeraldNode; reveal: Range }
 
 export interface ParseResult {
   doc: HeraldDoc
@@ -38,10 +60,10 @@ export function parseMarkdown(text: string): ParseResult {
     const node = converter.block(c)
     if (node) {
       content.push(node)
-      spans.push({ kind: "block", from: c.from, to: c.to, node })
+      spans.push({ kind: SpanKind.Block, from: c.from, to: c.to, node })
     }
   }
-  return { doc: normalize({ type: "doc", content }), spans }
+  return { doc: normalize({ type: NodeType.Doc, content }), spans }
 }
 
 const SKIP = new Set([
@@ -57,10 +79,10 @@ const SKIP = new Set([
   "CodeInfo",
 ])
 
-const INLINE_MARKS: Record<string, "italic" | "bold" | "strike"> = {
-  Emphasis: "italic",
-  StrongEmphasis: "bold",
-  Strikethrough: "strike",
+const INLINE_MARKS: Record<string, typeof MarkType.Italic | typeof MarkType.Bold | typeof MarkType.Strike> = {
+  Emphasis: MarkType.Italic,
+  StrongEmphasis: MarkType.Bold,
+  Strikethrough: MarkType.Strike,
 }
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " }
@@ -94,9 +116,72 @@ class Converter {
   private hideChildren(n: SyntaxNode, names: string[], reveal: Range = n) {
     for (let c = n.firstChild; c; c = c.nextSibling) {
       if (names.includes(c.name)) {
-        this.span({ kind: "hide", from: c.from, to: c.to, reveal: { from: reveal.from, to: reveal.to } })
+        this.span({ kind: SpanKind.Hide, from: c.from, to: c.to, reveal: { from: reveal.from, to: reveal.to } })
       }
     }
+  }
+
+  private inTable = false
+
+  private table(n: SyntaxNode): HeraldNode {
+    const delimiter = n.getChild("TableDelimiter")
+    const aligns = delimiter
+      ? this.slice(delimiter.from, delimiter.to)
+          .trim()
+          .replace(/^\||\|$/g, "")
+          .split("|")
+          .map((spec): TableAlign | undefined => {
+            const s = spec.trim()
+            const left = s.startsWith(":")
+            const right = s.endsWith(":")
+            return left && right ? TableAlign.Center : left ? TableAlign.Left : right ? TableAlign.Right : undefined
+          })
+      : []
+    this.inTable = true
+    const rows = [...n.getChildren("TableHeader"), ...n.getChildren("TableRow")].map((row, r) => ({
+      type: NodeType.TableRow,
+      content: this.tableCells(row).map((inline, i) => ({
+        type: r === 0 ? NodeType.TableHeader : NodeType.TableCell,
+        ...(aligns[i] ? { attrs: { align: aligns[i]! } } : {}),
+        content: [{ type: NodeType.Paragraph, content: inline }],
+      })),
+    }))
+    this.inTable = false
+    const node = normalize({ type: NodeType.Table, content: rows })
+    const range = { from: n.from, to: n.to }
+    this.span({ kind: SpanKind.Lines, ...range, key: EditorPart.Table })
+    this.span({ kind: SpanKind.Preview, ...range, node, reveal: range })
+    if (delimiter) {
+      this.span({ kind: SpanKind.Style, from: delimiter.from, to: delimiter.to, key: EditorPart.Syntax })
+    }
+    return node
+  }
+
+  /** A row's cells by column. Empty cells have no syntax node, so columns come from the pipe positions. */
+  private tableCells(row: SyntaxNode): HeraldNode[][] {
+    const pipes = row.getChildren("TableDelimiter")
+    for (const p of pipes) {
+      this.span({ kind: SpanKind.Style, from: p.from, to: p.to, key: EditorPart.Syntax })
+    }
+    const segments: Range[] = []
+    let start = row.from
+    for (const p of pipes) {
+      segments.push({ from: start, to: p.from })
+      start = p.to
+    }
+    segments.push({ from: start, to: row.to })
+    // a leading or trailing pipe leaves an empty segment outside the table
+    if (pipes.length && !this.slice(row.from, pipes[0]!.from).trim()) {
+      segments.shift()
+    }
+    if (pipes.length && !this.slice(pipes.at(-1)!.to, row.to).trim()) {
+      segments.pop()
+    }
+    const cells = row.getChildren("TableCell")
+    return segments.map((seg) => {
+      const cell = cells.find((c) => c.from >= seg.from && c.to <= seg.to)
+      return cell ? this.inline(cell, []) : []
+    })
   }
 
   blocks(parent: SyntaxNode): HeraldNode[] {
@@ -114,56 +199,58 @@ class Converter {
     const heading = /^(?:ATX|Setext)Heading(\d)$/.exec(n.name)
     if (heading) {
       const level = Number(heading[1])
-      this.span({ kind: "lines", from: n.from, to: n.to, key: `h${level}` as EditorClassKey })
+      this.span({ kind: SpanKind.Lines, from: n.from, to: n.to, key: `h${level}` as EditorPart })
       for (let c = n.firstChild; c; c = c.nextSibling) {
         if (c.name === "HeaderMark") {
           // take the space after `#` with it
           const to = this.src[c.to] === " " ? c.to + 1 : c.to
-          this.span({ kind: "hide", from: c.from, to, reveal: { from: n.from, to: n.to } })
+          this.span({ kind: SpanKind.Hide, from: c.from, to, reveal: { from: n.from, to: n.to } })
         }
       }
-      return { type: "heading", attrs: { level }, content: this.inline(n, []) }
+      return { type: NodeType.Heading, attrs: { level }, content: this.inline(n, []) }
     }
     switch (n.name) {
       case "Paragraph":
-        return { type: "paragraph", content: this.inline(n, []) }
+        return { type: NodeType.Paragraph, content: this.inline(n, []) }
       case "BulletList":
       case "OrderedList": {
         const items = this.blocks(n)
         if (n.name === "BulletList") {
-          return { type: "bulletList", content: items }
+          return { type: NodeType.BulletList, content: items }
         }
         const firstMark = n.firstChild?.getChild("ListMark")
         const start = firstMark ? parseInt(this.slice(firstMark.from, firstMark.to), 10) : 1
-        return { type: "orderedList", attrs: { start }, content: items }
+        return { type: NodeType.OrderedList, attrs: { start }, content: items }
       }
       case "ListItem": {
         const mark = n.getChild("ListMark")
         if (mark) {
-          this.span({ kind: "style", from: mark.from, to: mark.to, key: "list-mark" })
+          this.span({ kind: SpanKind.Style, from: mark.from, to: mark.to, key: EditorPart.ListMark })
         }
-        return { type: "listItem", content: this.blocks(n) }
+        return { type: NodeType.ListItem, content: this.blocks(n) }
       }
       case "Blockquote":
-        this.span({ kind: "lines", from: n.from, to: n.to, key: "quote" })
+        this.span({ kind: SpanKind.Lines, from: n.from, to: n.to, key: EditorPart.Quote })
         this.hideChildrenDeep(n, "QuoteMark", n)
-        return { type: "blockquote", content: this.blocks(n) }
+        return { type: NodeType.Blockquote, content: this.blocks(n) }
       case "FencedCode":
         return this.fencedCode(n)
       case "CodeBlock":
-        this.span({ kind: "lines", from: n.from, to: n.to, key: "code-block" })
-        return { type: "codeBlock", content: [{ type: "text", text: this.codeText(n) }] }
+        this.span({ kind: SpanKind.Lines, from: n.from, to: n.to, key: EditorPart.CodeBlock })
+        return { type: NodeType.CodeBlock, content: [{ type: NodeType.Text, text: this.codeText(n) }] }
       case "HorizontalRule":
-        this.span({ kind: "lines", from: n.from, to: n.to, key: "hr" })
-        this.span({ kind: "hide", from: n.from, to: n.to, reveal: { from: n.from, to: n.to } })
-        return { type: "horizontalRule" }
+        this.span({ kind: SpanKind.Lines, from: n.from, to: n.to, key: EditorPart.Hr })
+        this.span({ kind: SpanKind.Hide, from: n.from, to: n.to, reveal: { from: n.from, to: n.to } })
+        return { type: NodeType.HorizontalRule }
       case "Directive":
         return this.directive(n)
+      case "Table":
+        return this.table(n)
       case "HTMLBlock":
       case "LinkReference":
       case "CommentBlock":
       case "ProcessingInstructionBlock":
-        return { type: "paragraph", content: [{ type: "text", text: this.slice(n.from, n.to) }] }
+        return { type: NodeType.Paragraph, content: [{ type: NodeType.Text, text: this.slice(n.from, n.to) }] }
       default:
         return null
     }
@@ -174,7 +261,7 @@ class Converter {
     do {
       if (cursor.name === name) {
         const to = this.src[cursor.to] === " " ? cursor.to + 1 : cursor.to
-        this.span({ kind: "style", from: cursor.from, to, key: "syntax" })
+        this.span({ kind: SpanKind.Style, from: cursor.from, to, key: EditorPart.Syntax })
       }
     } while (cursor.next() && cursor.from < reveal.to)
   }
@@ -198,19 +285,19 @@ class Converter {
         const attrs = code.trim() ? JSON.parse(code) : {}
         if (attrs && typeof attrs === "object" && !Array.isArray(attrs)) {
           const node: HeraldNode = { type: language.slice("herald:".length), attrs }
-          this.span({ kind: "atom", from: n.from, to: n.to, node, block: true })
+          this.span({ kind: SpanKind.Atom, from: n.from, to: n.to, node, block: true })
           return node
         }
       } catch {
         // invalid JSON stays a code block so the text isn't lost
       }
     }
-    this.span({ kind: "lines", from: n.from, to: n.to, key: "code-block" })
+    this.span({ kind: SpanKind.Lines, from: n.from, to: n.to, key: EditorPart.CodeBlock })
     this.hideChildren(n, ["CodeMark", "CodeInfo"])
     return {
-      type: "codeBlock",
+      type: NodeType.CodeBlock,
       ...(language ? { attrs: { language } } : {}),
-      content: [{ type: "text", text: code }],
+      content: [{ type: NodeType.Text, text: code }],
     }
   }
 
@@ -231,14 +318,14 @@ class Converter {
       lineAttrs.style = `--herald-block-color: ${attrs.color}`
     }
     const headerRange = { from: n.from, to: n.from + headerEnd }
-    this.span({ kind: "lines", from: n.from, to: n.to, key: "directive", attrs: lineAttrs })
-    this.span({ kind: "lines", from: headerRange.from, to: headerRange.to, key: "directive-open" })
+    this.span({ kind: SpanKind.Lines, from: n.from, to: n.to, key: EditorPart.Directive, attrs: lineAttrs })
+    this.span({ kind: SpanKind.Lines, from: headerRange.from, to: headerRange.to, key: EditorPart.DirectiveOpen })
     const title = typeof attrs?.title === "string" && attrs.title ? attrs.title : type
-    this.span({ kind: "label", ...headerRange, text: title, key: "directive-title", reveal: headerRange })
+    this.span({ kind: SpanKind.Label, ...headerRange, text: title, key: EditorPart.DirectiveTitle, reveal: headerRange })
     if (closed) {
       const close = { from: n.from + lastLineStart, to: n.to }
-      this.span({ kind: "lines", ...close, key: "directive-close" })
-      this.span({ kind: "hide", ...close, reveal: close })
+      this.span({ kind: SpanKind.Lines, ...close, key: EditorPart.DirectiveClose })
+      this.span({ kind: SpanKind.Hide, ...close, reveal: close })
     }
 
     // shortcut: the body is parsed as its own document, which is exact for top-level directives. Inside a list
@@ -253,7 +340,7 @@ class Converter {
     let pos = parent.from
     const text = (from: number, to: number) => {
       if (to > from) {
-        out.push(withMarks({ type: "text", text: this.slice(from, to) }, marks))
+        out.push(withMarks({ type: NodeType.Text, text: this.slice(from, to) }, marks))
       }
     }
     for (let c = parent.firstChild; c; c = c.nextSibling) {
@@ -268,7 +355,7 @@ class Converter {
   private inlineNode(c: SyntaxNode, marks: HeraldMark[]): HeraldNode[] {
     const markType = INLINE_MARKS[c.name]
     if (markType) {
-      this.span({ kind: "style", from: c.from, to: c.to, key: markType })
+      this.span({ kind: SpanKind.Style, from: c.from, to: c.to, key: markType })
       this.hideChildren(c, ["EmphasisMark", "StrikethroughMark"])
       return this.inline(c, [...marks, { type: markType }])
     }
@@ -280,68 +367,72 @@ class Converter {
         const open = c.firstChild
         const close = c.lastChild
         if (!open || !close || open === close) {
-          return [withMarks({ type: "text", text: this.slice(c.from, c.to) }, marks)]
+          return [withMarks({ type: NodeType.Text, text: this.slice(c.from, c.to) }, marks)]
         }
-        this.span({ kind: "style", from: c.from, to: c.to, key: "code" })
+        this.span({ kind: SpanKind.Style, from: c.from, to: c.to, key: EditorPart.Code })
         this.hideChildren(c, ["CodeMark"])
         let code = this.slice(open.to, close.from).replace(/\n/g, " ")
+        if (this.inTable) {
+          // inside a table, a pipe in code is written \| so it doesn't end the cell
+          code = code.replace(/\\\|/g, "|")
+        }
         if (code.length > 1 && code.startsWith(" ") && code.endsWith(" ") && code.trim()) {
           code = code.slice(1, -1)
         }
-        return [withMarks({ type: "text", text: code }, [...marks, { type: "code" }])]
+        return [withMarks({ type: NodeType.Text, text: code }, [...marks, { type: MarkType.Code }])]
       }
       case "Link": {
         const linkMarks = c.getChildren("LinkMark")
         const url = c.getChild("URL")
         if (!url || linkMarks.length < 2) {
-          return [withMarks({ type: "text", text: this.slice(c.from, c.to) }, marks)]
+          return [withMarks({ type: NodeType.Text, text: this.slice(c.from, c.to) }, marks)]
         }
         let href = this.slice(url.from, url.to)
         if (href.startsWith("<") && href.endsWith(">")) {
           href = href.slice(1, -1)
         }
-        this.span({ kind: "style", from: c.from, to: c.to, key: "link" })
-        this.span({ kind: "hide", from: linkMarks[0]!.from, to: linkMarks[0]!.to, reveal: c })
-        this.span({ kind: "hide", from: linkMarks[1]!.from, to: c.to, reveal: c })
+        this.span({ kind: SpanKind.Style, from: c.from, to: c.to, key: EditorPart.Link })
+        this.span({ kind: SpanKind.Hide, from: linkMarks[0]!.from, to: linkMarks[0]!.to, reveal: c })
+        this.span({ kind: SpanKind.Hide, from: linkMarks[1]!.from, to: c.to, reveal: c })
         const inner = { from: linkMarks[0]!.to, to: linkMarks[1]!.from }
         const nodes: HeraldNode[] = []
         let pos = inner.from
-        const link: HeraldMark = { type: "link", attrs: { href: unescape(href) } }
+        const link: HeraldMark = { type: MarkType.Link, attrs: { href: unescape(href) } }
         for (let k = c.firstChild; k; k = k.nextSibling) {
           if (k.from < inner.from || k.to > inner.to) {
             continue
           }
           if (k.from > pos) {
-            nodes.push(withMarks({ type: "text", text: this.slice(pos, k.from) }, [...marks, link]))
+            nodes.push(withMarks({ type: NodeType.Text, text: this.slice(pos, k.from) }, [...marks, link]))
           }
           nodes.push(...this.inlineNode(k, [...marks, link]))
           pos = k.to
         }
         if (inner.to > pos) {
-          nodes.push(withMarks({ type: "text", text: this.slice(pos, inner.to) }, [...marks, link]))
+          nodes.push(withMarks({ type: NodeType.Text, text: this.slice(pos, inner.to) }, [...marks, link]))
         }
         return nodes
       }
       case "Autolink": {
         const url = c.getChild("URL")
         const href = url ? this.slice(url.from, url.to) : this.slice(c.from + 1, c.to - 1)
-        return [withMarks({ type: "text", text: href }, [...marks, { type: "link", attrs: { href } }])]
+        return [withMarks({ type: NodeType.Text, text: href }, [...marks, { type: MarkType.Link, attrs: { href } }])]
       }
       case "Escape":
-        return [withMarks({ type: "text", text: this.slice(c.from + 1, c.to) }, marks)]
+        return [withMarks({ type: NodeType.Text, text: this.slice(c.from + 1, c.to) }, marks)]
       case "Entity": {
         const raw = this.slice(c.from, c.to)
-        return [withMarks({ type: "text", text: decodeEntity(raw) }, marks)]
+        return [withMarks({ type: NodeType.Text, text: decodeEntity(raw) }, marks)]
       }
       case "HardBreak":
-        return [{ type: "hardBreak" }]
+        return [{ type: NodeType.HardBreak }]
       case "Mention": {
         const raw = this.slice(c.from, c.to)
         const m = MENTION.exec(raw)!
         const extra = parseAttrs(raw, m[0].length)?.attrs ?? {}
         const attrs: Attrs = { kind: m[2]!, id: unescape(m[3]!), label: unescape(m[1]!), ...extra }
-        const node = withMarks({ type: "mention", attrs }, marks)
-        this.span({ kind: "atom", from: c.from, to: c.to, node, block: false })
+        const node = withMarks({ type: NodeType.Mention, attrs }, marks)
+        this.span({ kind: SpanKind.Atom, from: c.from, to: c.to, node, block: false })
         return [node]
       }
       case "InlineDirective": {
@@ -350,11 +441,11 @@ class Converter {
         const label = unescape(m[2]!)
         const attrs: Attrs = { ...(label ? { label } : {}), ...(parseAttrs(raw, m[0].length)?.attrs ?? {}) }
         const node = withMarks({ type: m[1]!, ...(Object.keys(attrs).length ? { attrs } : {}) }, marks)
-        this.span({ kind: "atom", from: c.from, to: c.to, node, block: false })
+        this.span({ kind: SpanKind.Atom, from: c.from, to: c.to, node, block: false })
         return [node]
       }
       default:
-        return [withMarks({ type: "text", text: this.slice(c.from, c.to) }, marks)]
+        return [withMarks({ type: NodeType.Text, text: this.slice(c.from, c.to) }, marks)]
     }
   }
 }

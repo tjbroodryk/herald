@@ -52,6 +52,12 @@ export const initialPrompt = `# Refund triage
 
 Read the ticket @[ticket_id](input:ticket_id), then use @[CRM lookup](tool:crm_lookup) to find the customer. If the refund is **over $500**, loop in @[Ana Ruiz](user:u_ana).
 
+| Amount | Decision | Who |
+| :--- | :--- | :--- |
+| under $100 | \`approve\` | you |
+| $100 to $500 | \`approve\` if the order shipped | you |
+| over $500 | \`escalate\` | @[Ana Ruiz](user:u_ana) |
+
 :::section{title="Rules" color="var(--salsa)"}
 Follow @[Refund policy](document:d_refunds) exactly.
 

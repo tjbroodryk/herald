@@ -1,0 +1,3 @@
+# Tailwind for the shadcn example page
+[serve.static]
+plugins = ["bun-plugin-tailwind"]

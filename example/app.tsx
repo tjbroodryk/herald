@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import { createRoot } from "react-dom/client"
-import { createSchema, section, starterKit, type HeraldDoc } from "@herald/core"
+import { createSchema, section, starterKit, tables, type HeraldDoc } from "@herald/core"
+import { htmlPaste, markdownPaste } from "@herald/paste"
 import { agentInputs, outputShape } from "@herald/agent"
 import { codemirror } from "@herald/codemirror"
 import { markdown } from "@herald/markdown"
@@ -10,7 +11,9 @@ import { initialPrompt } from "./data"
 import { Nav, ThemeToggle } from "./chrome"
 import { compileOptions, diagnoseOptions, mention, mentionItems } from "./mentions"
 
-const schema = createSchema([starterKit(), mention, section, agentInputs(), outputShape()])
+const inputs = agentInputs()
+// paste: rich text from web pages and docs first, then plain text read as markdown
+const schema = createSchema([starterKit(), tables(), mention, section, inputs, outputShape(), htmlPaste(), markdownPaste()])
 
 function App() {
   const editor = useEditor({
@@ -22,7 +25,7 @@ function App() {
       trigger("@", { items: mentionItems }),
       trigger("{{", {
         items: (q, { doc }) =>
-          agentInputs
+          inputs
             .get(doc)
             .filter((f) => f.name.includes(q))
             .map((f) => ({

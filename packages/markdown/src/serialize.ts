@@ -1,4 +1,4 @@
-import { isInline, normalize, sameMark, sortMarks, type Attrs, type HeraldDoc, type HeraldMark, type HeraldNode } from "@herald/core"
+import { isInline, MarkType, NodeType, normalize, TableAlign, sameMark, sortMarks, type Attrs, type HeraldDoc, type HeraldMark, type HeraldNode } from "@herald/core"
 import { serializeAttrs } from "./attrs"
 
 /** Marks the cursor position in serialized output; removed by `serializeWithCursor`. */
@@ -17,20 +17,20 @@ export function serializeWithCursor(node: HeraldNode): { text: string; cursor: n
   return at < 0 ? { text, cursor: text.length } : { text: text.replace(CURSOR, ""), cursor: at }
 }
 
-const isBlockish = (n: HeraldNode) => !n.marks && n.type !== "text" && !isInlineAtom(n)
+const isBlockish = (n: HeraldNode) => !n.marks && n.type !== NodeType.Text && !isInlineAtom(n)
 // Unknown leaf nodes with a `label` attr are treated as inline when inserted on their own.
 export const isInlineAtom = (n: HeraldNode) => isInline(n) || (!n.content && typeof n.attrs?.label === "string")
 
 function placeCursor(node: HeraldNode): HeraldNode {
   const textblock = (n: HeraldNode): HeraldNode | undefined =>
-    n.type === "paragraph" || n.type === "heading" || n.type === "codeBlock"
+    n.type === NodeType.Paragraph || n.type === NodeType.Heading || n.type === NodeType.CodeBlock
       ? n
       : n.content?.map(textblock).find(Boolean)
   const target = textblock(node)
   if (target) {
-    target.content = [...(target.content ?? []), { type: "text", text: CURSOR }]
+    target.content = [...(target.content ?? []), { type: NodeType.Text, text: CURSOR }]
   } else if (node.content) {
-    node.content.push({ type: "paragraph", content: [{ type: "text", text: CURSOR }] })
+    node.content.push({ type: NodeType.Paragraph, content: [{ type: NodeType.Text, text: CURSOR }] })
   }
   return node
 }
@@ -42,38 +42,44 @@ function blocks(nodes: HeraldNode[]): string {
 function block(node: HeraldNode, prev: HeraldNode | undefined): string {
   const content = node.content ?? []
   switch (node.type) {
-    case "paragraph":
+    case NodeType.Paragraph:
       return inline(content)
-    case "heading": {
+    case NodeType.Heading: {
       const level = Math.min(6, Math.max(1, Number(node.attrs?.level) || 1))
       // a trailing `#` would be read as the optional closing sequence
       return `${"#".repeat(level)} ${inline(content).replace(/#$/, "\\#")}`
     }
-    case "bulletList": {
+    case NodeType.BulletList: {
       // a different bullet keeps two adjacent lists from merging into one
-      const bullet = prev?.type === "bulletList" ? "*" : "-"
+      const bullet = prev?.type === NodeType.BulletList ? "*" : "-"
       return content.map((item) => prefix(blocks(item.content ?? []), `${bullet} `)).join("\n")
     }
-    case "orderedList": {
+    case NodeType.OrderedList: {
       const start = Number(node.attrs?.start ?? 1)
-      const delim = prev?.type === "orderedList" ? ")" : "."
+      const delim = prev?.type === NodeType.OrderedList ? ")" : "."
       return content.map((item, i) => prefix(blocks(item.content ?? []), `${start + i}${delim} `)).join("\n")
     }
-    case "listItem":
+    case NodeType.ListItem:
       return blocks(content)
-    case "blockquote":
+    case NodeType.Blockquote:
       return blocks(content)
         .split("\n")
         .map((l) => (l ? `> ${l}` : ">"))
         .join("\n")
-    case "codeBlock": {
+    case NodeType.CodeBlock: {
       const code = content.map((c) => c.text ?? "").join("")
       const fence = "`".repeat(Math.max(3, longestRun(code, "`") + 1))
       const lang = typeof node.attrs?.language === "string" ? node.attrs.language : ""
       return code ? `${fence}${lang}\n${code}\n${fence}` : `${fence}${lang}\n${fence}`
     }
-    case "horizontalRule":
+    case NodeType.HorizontalRule:
       return "---"
+    case NodeType.Table: {
+      const rows = content.map((row) => (row.content ?? []).map((cell) => inline(cell.content?.[0]?.content ?? [], true)))
+      const delimiters = (content[0]?.content ?? []).map((cell) => ALIGN_DELIMITERS[String(cell.attrs?.align)] ?? "---")
+      const line = (cells: string[]) => `| ${cells.join(" | ")} |`
+      return [line(rows[0] ?? []), line(delimiters), ...rows.slice(1).map(line)].join("\n")
+    }
     default:
       if (content.length) {
         return `:::${node.type}${serializeAttrs(node.attrs)}\n${blocks(content)}\n:::`
@@ -100,18 +106,24 @@ function longestRun(s: string, ch: string): number {
   return best
 }
 
+const ALIGN_DELIMITERS: Record<string, string> = {
+  [TableAlign.Left]: ":---",
+  [TableAlign.Center]: ":---:",
+  [TableAlign.Right]: "---:",
+}
+
 const MARK_DELIMS: Record<string, [string, string]> = {
-  bold: ["**", "**"],
-  italic: ["*", "*"],
-  strike: ["~~", "~~"],
+  [MarkType.Bold]: ["**", "**"],
+  [MarkType.Italic]: ["*", "*"],
+  [MarkType.Strike]: ["~~", "~~"],
 }
 
 function open(m: HeraldMark): string {
-  return m.type === "link" ? "[" : MARK_DELIMS[m.type]![0]
+  return m.type === MarkType.Link ? "[" : MARK_DELIMS[m.type]![0]
 }
 
 function close(m: HeraldMark): string {
-  if (m.type === "link") {
+  if (m.type === MarkType.Link) {
     return `](${linkHref(String(m.attrs?.href ?? ""))})`
   }
   return MARK_DELIMS[m.type]![1]
@@ -123,9 +135,10 @@ function linkHref(href: string): string {
 
 // shortcut: unknown marks are dropped from markdown (the JSON keeps them). Give a mark a markdown form here if
 // one needs to survive a markdown round trip.
-const writable = (m: HeraldMark) => m.type === "link" || m.type in MARK_DELIMS
+const writable = (m: HeraldMark) => m.type === MarkType.Link || m.type in MARK_DELIMS
 
-function inline(nodes: HeraldNode[]): string {
+/** `inTable`: the text is a table cell, where `|` must be escaped or it ends the cell. */
+function inline(nodes: HeraldNode[], inTable = false): string {
   let out = ""
   const stack: HeraldMark[] = []
   const closeTo = (depth: number) => {
@@ -149,53 +162,58 @@ function inline(nodes: HeraldNode[]): string {
         stack.push(m)
       }
     }
-    out += inlineNode(node, lineStart && stack.length === 0)
-    lineStart = node.type === "hardBreak"
+    out += inlineNode(node, lineStart && stack.length === 0, inTable)
+    lineStart = node.type === NodeType.HardBreak
   }
   closeTo(0)
   return out
 }
 
-function inlineNode(node: HeraldNode, lineStart: boolean): string {
+// shortcut: a `|` inside a mention's or inline node's extra {attrs} still ends a table cell; escape it there too if
+// attrs in table cells turn up.
+function inlineNode(node: HeraldNode, lineStart: boolean, inTable: boolean): string {
   switch (node.type) {
-    case "text": {
+    case NodeType.Text: {
       const text = node.text ?? ""
-      if (node.marks?.some((m) => m.type === "code")) {
-        return code(text)
+      if (node.marks?.some((m) => m.type === MarkType.Code)) {
+        return code(text, inTable)
       }
-      return escapeText(text, lineStart)
+      return escapeText(text, lineStart, inTable)
     }
-    case "hardBreak":
+    case NodeType.HardBreak:
       // a plain newline: Herald reads every newline in a paragraph as a line break
       return "\n"
-    case "mention": {
+    case NodeType.Mention: {
       const { kind, id, label, ...extra } = node.attrs ?? {}
-      return `@[${escapeLabel(String(label ?? ""))}](${kind}:${String(id ?? "").replace(/[\\)\s]/g, "\\$&")})${serializeAttrs(extra as Attrs)}`
+      const escapedId = String(id ?? "").replace(inTable ? /[\\)\s|]/g : /[\\)\s]/g, "\\$&")
+      return `@[${escapeLabel(String(label ?? ""), inTable)}](${kind}:${escapedId})${serializeAttrs(extra as Attrs)}`
     }
     default: {
       const { label, ...rest } = node.attrs ?? {}
-      return `:${node.type}[${escapeLabel(typeof label === "string" ? label : "")}]${serializeAttrs(rest as Attrs)}`
+      return `:${node.type}[${escapeLabel(typeof label === "string" ? label : "", inTable)}]${serializeAttrs(rest as Attrs)}`
     }
   }
 }
 
-function code(text: string): string {
+function code(text: string, inTable: boolean): string {
   const fence = "`".repeat(longestRun(text, "`") + 1)
   const pad =
     text.startsWith("`") || text.endsWith("`") || (text.startsWith(" ") && text.endsWith(" ") && text.trim())
-  return pad ? `${fence} ${text} ${fence}` : `${fence}${text}${fence}`
+  // the parser turns \| back into | inside table code
+  const body = inTable ? text.replace(/\|/g, "\\|") : text
+  return pad ? `${fence} ${body} ${fence}` : `${fence}${body}${fence}`
 }
 
-const escapeLabel = (s: string) => s.replace(/[\\\]]/g, "\\$&")
+const escapeLabel = (s: string, inTable: boolean) => s.replace(inTable ? /[\\\]|]/g : /[\\\]]/g, "\\$&")
 
 const ALWAYS = new Set(["\\", "`", "*", "~", "[", "]", "<"])
 const isWord = (c: string | undefined) => !!c && /[\p{L}\p{N}]/u.test(c)
 
-function escapeText(text: string, lineStart: boolean): string {
+function escapeText(text: string, lineStart: boolean, inTable = false): string {
   let out = ""
   for (let i = 0; i < text.length; i++) {
     const c = text[i]!
-    if (ALWAYS.has(c)) {
+    if (ALWAYS.has(c) || (inTable && c === "|")) {
       out += "\\" + c
     } else if (c === "_" && !(isWord(text[i - 1]) && isWord(text[i + 1]))) {
       out += "\\_"

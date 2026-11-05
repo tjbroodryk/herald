@@ -1,11 +1,11 @@
 import type { StateField } from "@codemirror/state"
 import { ViewPlugin, type Command, type EditorView, type ViewUpdate } from "@codemirror/view"
-import type { EditorClassKey, Range } from "@herald/core"
-import { planMove, type ParseResult } from "@herald/markdown"
+import { EditorPart, type Range } from "@herald/core"
+import { planMove, SpanKind, type ParseResult } from "@herald/markdown"
 
 type Blocks = (field: StateField<ParseResult>, view: EditorView) => Range[]
 
-const topLevel: Blocks = (field, view) => view.state.field(field).spans.filter((s) => s.kind === "block")
+const topLevel: Blocks = (field, view) => view.state.field(field).spans.filter((s) => s.kind === SpanKind.Block)
 
 function move(view: EditorView, field: StateField<ParseResult>, index: number, gap: number, keepOffset: number) {
   const blocks = topLevel(field, view)
@@ -33,12 +33,12 @@ export function moveBlockCommand(field: StateField<ParseResult>, dir: -1 | 1): C
 }
 
 /** A grab handle beside each top-level block (sections move with everything inside them). */
-export function dragBlocks(field: StateField<ParseResult>, cls: (key: EditorClassKey) => string) {
+export function dragBlocks(field: StateField<ParseResult>, cls: (key: EditorPart) => string) {
   return ViewPlugin.fromClass(
     class {
-      handle = div(cls("drag-handle"), "⋮⋮")
-      line = div(cls("drop-line"))
-      ghost = div(cls("drag-ghost"))
+      handle = div(cls(EditorPart.DragHandle), "⋮⋮")
+      line = div(cls(EditorPart.DropLine))
+      ghost = div(cls(EditorPart.DragGhost))
       hover = -1
       drag: { index: number; gap: number } | null = null
 

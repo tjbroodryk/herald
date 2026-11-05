@@ -2,7 +2,7 @@ import type { Codec, HeraldDoc } from "@herald/core"
 import { parseMarkdown } from "./parse"
 import { serializeMarkdown } from "./serialize"
 
-export { parseMarkdown, type ParseResult, type Span } from "./parse"
+export { parseMarkdown, SpanKind, type ParseResult, type Span } from "./parse"
 export { isInlineAtom, serializeMarkdown, serializeWithCursor } from "./serialize"
 export { parseAttrs, serializeAttrs } from "./attrs"
 export { planMove, type MovePlan } from "./move"

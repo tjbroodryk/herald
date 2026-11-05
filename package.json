@@ -2,13 +2,15 @@
   "name": "herald-workspace",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "example": "bun --hot example/server.ts",
     "test": "bun test",
     "typecheck": "bun check",
-    "build": "for p in core markdown agent codemirror react ui; do (cd packages/$p && bun run build) || exit 1; done",
-    "build:site": "rm -rf site && bun build example/index.html example/chat.html --outdir site --minify --splitting --public-path ./ --define process.env.NODE_ENV='\"production\"'",
+    "build": "for p in core markdown paste agent codemirror react ui; do (cd packages/$p && bun run build) || exit 1; done",
+    "build:site": "bun scripts/build-site.ts",
     "version:set": "bun scripts/version.ts"
   },
   "devDependencies": {
@@ -19,13 +21,20 @@
     "@herald/codemirror": "workspace:*",
     "@herald/core": "workspace:*",
     "@herald/markdown": "workspace:*",
+    "@herald/paste": "workspace:*",
     "@herald/react": "workspace:*",
     "@herald/ui": "workspace:*",
     "@types/bun": "latest",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "bun-plugin-tailwind": "^0.1.2",
+    "clsx": "^2.1.1",
+    "happy-dom": "^21.0.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "shadcn": "^4.23.0",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.4",
     "typescript": "^7.0.2",
     "zod": "^4.6.7"
   }
