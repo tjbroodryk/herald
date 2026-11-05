@@ -9,25 +9,20 @@
     "directory": "packages/react"
   },
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
   "sideEffects": [
     "**/*.css"
   ],
   "exports": {
     ".": {
-      "bun": "./src/index.tsx",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./styles.css": {
-      "bun": "./src/styles.css",
-      "default": "./dist/styles.css"
-    }
+    "./styles.css": "./dist/styles.css"
   },
   "scripts": {
-    "build": "rm -rf dist && bun build src/index.tsx --outdir dist --format esm --target browser --packages external && tsc -p tsconfig.build.json && cp src/styles.css dist/styles.css"
+    "build": "rm -rf dist && NODE_ENV=production bun build src/index.tsx --outdir dist --format esm --target browser --packages external --external '@herald/*' && tsc -p tsconfig.build.json && cp src/styles.css dist/styles.css"
   },
   "dependencies": {
     "@herald/core": "workspace:*",

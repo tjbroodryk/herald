@@ -8,7 +8,7 @@
     "test": "bun test",
     "typecheck": "bun check",
     "build": "for p in core markdown agent codemirror react; do (cd packages/$p && bun run build) || exit 1; done",
-    "build:site": "rm -rf site && bun build example/index.html example/chat.html --outdir site --minify --splitting --conditions bun --public-path ./ --define process.env.NODE_ENV='\"production\"'",
+    "build:site": "rm -rf site && bun build example/index.html example/chat.html --outdir site --minify --splitting --public-path ./ --define process.env.NODE_ENV='\"production\"'",
     "version:set": "bun scripts/version.ts"
   },
   "devDependencies": {

@@ -4,24 +4,19 @@ A prompt editor for LLM apps: `@` mentions, `/` commands, typed agent inputs and
 
 Live demo: https://tjbroodryk.github.io/herald/ (prompt editor and chat input).
 
-```sh
-# server side: read, query and compile prompts
-npm install @herald/core @herald/markdown @herald/agent
-# the editor
-npm install @herald/react @herald/codemirror @codemirror/state @codemirror/view @codemirror/commands
-```
+Not published yet. To try it, clone the repo and run the playground (see Developing below).
 
-## The packages
+## Layout
 
-| Package | What | Depends on |
+| Directory | What | Depends on |
 |---|---|---|
-| `@herald/core` | JSON model, plugins, `compile`, traversal, JSON codec, the `EditorAdapter` interface | nothing |
-| `@herald/markdown` | markdown codec, parser, serializer | core, `@lezer/markdown` |
-| `@herald/agent` | `agentInputs`, `outputShape`, `toolKind` | core |
-| `@herald/codemirror` | the CodeMirror editor adapter | core, markdown, `@codemirror/*` (peers) |
-| `@herald/react` | `PromptEditor`, menus, toolbar, `Inspector`, `DocView`; `@herald/react/styles.css` | core, markdown, agent, `react` (peer) |
+| `packages/core` | JSON model, plugins, `compile`, traversal, JSON codec, the `EditorAdapter` interface | nothing |
+| `packages/markdown` | markdown codec, parser, serializer | core, `@lezer/markdown` |
+| `packages/agent` | `agentInputs`, `outputShape`, `toolKind` | core |
+| `packages/codemirror` | the CodeMirror editor adapter | core, markdown, CodeMirror (peer) |
+| `packages/react` | `PromptEditor`, menus, toolbar, `Inspector`, `DocView`, default `styles.css` | core, markdown, agent, React (peer) |
 
-No package needs an editor engine except the adapter you choose. `@herald/react` talks to the editor only through `EditorAdapter`, so it works the same with `@herald/codemirror` or a future `@herald/prosemirror`.
+Only the editor adapter depends on an editor engine. The React package talks to the editor only through `EditorAdapter`, so it works the same with the CodeMirror adapter or a future ProseMirror one.
 
 The doc is plain JSON in the same shape as ProseMirror/TipTap (`{ type, attrs, content, marks, text }`), so a server can read, query and compile it without an editor.
 
@@ -174,7 +169,7 @@ const editor = useEditor({
 - Unknown marks are kept in JSON but dropped from markdown.
 - A `:::` directive inside a list item or blockquote isn't supported; put the list inside the directive.
 - Fields in `inputs`/`outputShape` are one level deep.
-- Only the CodeMirror adapter exists. `EditorAdapter` in `@herald/core` is the interface a ProseMirror adapter would implement.
+- Only the CodeMirror adapter exists. `EditorAdapter` in core is the interface a ProseMirror adapter would implement.
 
 ## Developing
 
@@ -186,19 +181,10 @@ bun check
 bun run build     # packages/*/dist: ESM + .d.ts (+ styles.css), built in dependency order
 ```
 
-The packages live in `packages/*` as Bun workspaces. Inside the repo, `@herald/*` imports resolve to each package's `src/` through the `bun` export condition, so tests and the example need no build.
+The packages are Bun workspaces. Inside the repo, imports between them resolve to source through `paths` in `tsconfig.json`, so tests and the example need no build.
 
-## CI, releases and the demo site
+## CI and the demo site
 
 - `ci.yml`: type checks, tests, the package build and the site build on every push and pull request.
 - `pages.yml`: builds the examples (`bun run build:site`) and deploys them to GitHub Pages on every push to `main`.
-- `release.yml`: runs on a `v*` tag. It checks that every package has the tag's version, tests and builds again, publishes all five packages to npm with provenance, and creates a GitHub release with the tarballs attached. It needs an `NPM_TOKEN` repository secret: an npm automation token that can publish to the `@herald` scope.
-
-The packages release together on one version. To cut one:
-
-```sh
-bun run version:set 0.2.0
-git commit -am "Release 0.2.0" && git tag v0.2.0
-```
-
-Then push the commit and the tag.
+- `release.yml`: ready for when the packages are published; it runs only on a `v*` tag, and no tags exist yet.

@@ -7,6 +7,6 @@
     "emitDeclarationOnly": true,
     "allowImportingTsExtensions": false,
     // other @herald packages resolve to their built .d.ts, so packages build in dependency order
-    "customConditions": []
+    "paths": {}
   }
 }

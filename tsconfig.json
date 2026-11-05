@@ -11,8 +11,12 @@
 
     // Bundler mode
     "moduleResolution": "bundler",
-    // resolve the package's own exports to src/ (the "bun" condition), so checks don't need a build
-    "customConditions": ["bun"],
+    // inside the repo @herald/* resolves to source, so tests, checks and the example need no build
+    "paths": {
+      "@herald/react": ["./packages/react/src/index.tsx"],
+      "@herald/react/styles.css": ["./packages/react/src/styles.css"],
+      "@herald/*": ["./packages/*/src/index.ts"]
+    },
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
