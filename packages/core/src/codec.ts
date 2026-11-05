@@ -1,5 +1,5 @@
 import { normalize } from "./normalize"
-import type { HeraldDoc, HeraldNode } from "./types"
+import { NodeType, type HeraldDoc, type HeraldNode } from "./types"
 
 /** A two-way storage format. Implement this to store the doc however you like. */
 export interface Codec<Stored> {
@@ -19,7 +19,7 @@ export class HeraldParseError extends Error {
 /** Checks the JSON is shaped like a doc. Unknown node types are fine and kept. */
 export function assertDoc(value: unknown): HeraldDoc {
   assertNode(value, "doc")
-  if ((value as HeraldNode).type !== "doc") {
+  if ((value as HeraldNode).type !== NodeType.Doc) {
     throw new HeraldParseError('expected type "doc"', "doc")
   }
   return value as HeraldDoc
@@ -33,7 +33,7 @@ function assertNode(value: unknown, path: string): asserts value is HeraldNode {
   if (typeof node.type !== "string") {
     throw new HeraldParseError("expected a string type", path)
   }
-  if (node.type === "text" && typeof node.text !== "string") {
+  if (node.type === NodeType.Text && typeof node.text !== "string") {
     throw new HeraldParseError("text node without text", path)
   }
   if (node.attrs !== undefined && (typeof node.attrs !== "object" || node.attrs === null || Array.isArray(node.attrs))) {

@@ -1,6 +1,6 @@
 import { useState } from "react"
 import type { CompileOptions, DiagnoseOptions } from "@herald/core"
-import { INSPECTOR_TABS, useInspector, type HeraldEditor, type InspectorTab } from "@herald/react"
+import { INSPECTOR_TABS, InspectorTab, useInspector, type HeraldEditor } from "@herald/react"
 import { cn } from "@/lib/utils"
 
 export interface InspectorProps {
@@ -14,7 +14,7 @@ export interface InspectorProps {
 /** What the editor produces: the compiled prompt, the JSON state, its markdown, collected values and diagnostics. */
 export function Inspector({ editor, compile, diagnose, className }: InspectorProps) {
   const { diagnostics, text } = useInspector(editor, { compile, diagnose })
-  const [tab, setTab] = useState<InspectorTab>("prompt")
+  const [tab, setTab] = useState<InspectorTab>(InspectorTab.Prompt)
   return (
     <div className={cn("flex min-h-0 flex-col gap-2", className)}>
       <div role="tablist" className="inline-flex h-9 w-fit items-center rounded-lg bg-muted p-[3px] text-muted-foreground">

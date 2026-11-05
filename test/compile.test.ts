@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { z } from "zod"
-import { createSchema, defineNode, find, HeraldParseError, mentions, replace, section, starterKit, type HeraldDoc } from "@herald/core"
+import { createSchema, defineNode, DiagnosticCode, find, HeraldParseError, mentions, replace, section, starterKit, type HeraldDoc } from "@herald/core"
 import { agentInputs, outputShape, toolKind } from "@herald/agent"
 import { markdown } from "@herald/markdown"
 
@@ -50,7 +50,7 @@ describe("compile", () => {
     })
     expect(calls).toEqual([["a", "b", "zz"]])
     expect(out.prompt).toBe('<doc>A sees <doc>B</doc> and <doc>"A"</doc></doc> <doc>B</doc> <doc>A sees <doc>B</doc> and <doc>"A"</doc></doc> <doc>"Gone"</doc>')
-    expect(out.diagnostics.map((d) => d.code).sort()).toEqual(["cycle", "cycle", "missing-reference"])
+    expect(out.diagnostics.map((d) => d.code).sort()).toEqual([DiagnosticCode.Cycle, DiagnosticCode.Cycle, DiagnosticCode.MissingReference])
   })
 
   test("resolver errors reject by default, or fall back", async () => {
@@ -59,7 +59,7 @@ describe("compile", () => {
     await expect(schema.compile(doc, { resolve })).rejects.toThrow("db down")
     const out = await schema.compile(doc, { resolve, onError: "fallback" })
     expect(out.prompt).toBe('<doc>"A"</doc>')
-    expect(out.diagnostics.map((d) => d.code)).toEqual(["resolve-failed", "missing-reference"])
+    expect(out.diagnostics.map((d) => d.code)).toEqual([DiagnosticCode.ResolveFailed, DiagnosticCode.MissingReference])
   })
 
   test("abort signal stops compiling", async () => {
@@ -105,7 +105,12 @@ describe("traversal and diagnostics", () => {
   test("diagnose", () => {
     const doc = md("@[X](tool:x) @[q](input:q) @[?](widget:w)\n\n:::mystery\nhi\n:::\n")
     const codes = schema.diagnose(doc, { tools: ["search"] }).map((d) => d.code)
-    expect(codes).toEqual(["invalid-tool", "unknown-mention-kind", "unknown-node", "undeclared-input"])
+    expect(codes).toEqual([
+      DiagnosticCode.InvalidMention,
+      DiagnosticCode.UnknownMentionKind,
+      DiagnosticCode.UnknownNode,
+      DiagnosticCode.UndeclaredInput,
+    ])
   })
 
   test("parse validates attrs with Standard Schema and keeps unknown nodes", () => {

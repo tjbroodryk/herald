@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react"
+import { NodeType } from "@herald/core"
 import { useFields, type BlockViewProps, type FieldPath, type FieldsApi, type InlineViewProps, type ViewSet } from "@herald/react"
-import type { Field, FieldType } from "@herald/agent"
+import { FieldType, type Field } from "@herald/agent"
 import { cn } from "@/lib/utils"
 
 export function MentionChip({ node, kind }: InlineViewProps) {
@@ -17,7 +18,7 @@ export function MentionChip({ node, kind }: InlineViewProps) {
         "bg-[color-mix(in_oklab,var(--herald-kind-color)_12%,transparent)] text-(--herald-kind-color)",
       )}
     >
-      {node.type === "mention" ? (kind?.prefix ?? "@") : ""}
+      {node.type === NodeType.Mention ? (kind?.prefix ?? "@") : ""}
       {label}
     </span>
   )
@@ -46,9 +47,9 @@ function FieldList({ fields, path, api }: { fields: Field[]; path: FieldPath; ap
         const at = [...path, i]
         // the object whose fields nest under this row: the field itself, or its array's items
         const nested: [Field[], FieldPath] | null =
-          f.type === "object"
+          f.type === FieldType.Object
             ? [f.fields ?? [], at]
-            : f.type === "array" && f.items?.type === "object"
+            : f.type === FieldType.Array && f.items?.type === FieldType.Object
               ? [f.items.fields ?? [], [...at, "items"]]
               : null
         return (
@@ -62,12 +63,12 @@ function FieldList({ fields, path, api }: { fields: Field[]; path: FieldPath; ap
                 onChange={(e) => api.patch(at, { name: e.target.value.replace(/\s/g, "_") })}
               />
               <TypeSelect value={f.type} types={api.types} onChange={(type) => api.patch(at, { type })} />
-              {f.type === "array" && (
+              {f.type === FieldType.Array && (
                 <>
                   <span className="shrink-0 text-xs text-muted-foreground">of</span>
                   <TypeSelect
                     value={f.items?.type ?? "string"}
-                    types={api.types.filter((t) => t !== "array")}
+                    types={api.types.filter((t) => t !== FieldType.Array)}
                     onChange={(type) => api.patch([...at, "items"], { type })}
                   />
                 </>

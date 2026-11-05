@@ -47,6 +47,10 @@ export const output = outputShape()
 export const schema = createSchema([starterKit(), mention, section, inputs, output])
 ```
 
+The inputs and output-shape blocks hold typed fields (`FieldType.String`, `Number`, `Boolean`, `Object`, `Array`). Object fields have their own `fields`, and arrays have an `items` shape, to any depth. Both turn into JSON Schema, and the editors for them nest the same way.
+
+Types and values the library defines are constant objects with a matching type, rather than bare strings: `NodeType`, `MarkType`, `FieldType`, `CompileMode`, `DiagnosticCode`, `EditorPart` and so on. The JSON still stores the plain strings.
+
 A custom node is one definition: its attrs (any Standard Schema validator), how it compiles, and its `/` menu entry.
 
 ```ts
@@ -67,7 +71,7 @@ mention.tool.all(doc)          // [{ kind: "tool", id: "search_web", label: "Sea
 find(doc, mention.user)        // the nodes
 replace(doc, mention.tool, (n) => …) // renames, returns a new doc
 inputs.get(doc)                // [{ name, type, description }]
-inputs.validate(doc, values)   // ["ticket_id is required"]
+inputs.validate(doc, values)   // ["ticket_id is required", "orders[1].sku should be string, got number"]
 output.jsonSchema(doc)         // JSON Schema for structured output
 schema.diagnose(doc, { tools: knownToolIds }) // unknown tools, undeclared inputs, bad attrs…
 ```
@@ -77,7 +81,7 @@ schema.diagnose(doc, { tools: knownToolIds }) // unknown tools, undeclared input
 ```ts
 const out = await schema.compile(doc, {
   resolve: { document: { many: (ids) => db.docs.getMany(ids) } }, // or (id) => db.docs.get(id)
-  mode: "markdown", // or "plain"
+  mode: CompileMode.Markdown, // or CompileMode.Plain
   signal,
 })
 out.prompt          // the text
@@ -85,7 +89,7 @@ out.collected.tools // ["search_web", "crm_lookup"]
 out.diagnostics     // cycles, missing refs
 ```
 
-Resolvers can be async. Requests at the same depth go out together (one `many` call per depth), repeats are fetched once, cycles and missing refs fall back to the given text and show up in `diagnostics`. A resolver that throws rejects the compile unless you pass `onError: "fallback"`. `override: { mention: (n) => … }` swaps any node's compiler for one call.
+Resolvers can be async. Requests at the same depth go out together (one `many` call per depth), repeats are fetched once, cycles and missing refs fall back to the given text and show up in `diagnostics`. A resolver that throws rejects the compile unless you pass `onError: OnResolveError.Fallback`. `override: { [NodeType.Mention]: (n) => … }` swaps any node's compiler for one call.
 
 ## Storage
 
@@ -199,7 +203,8 @@ const editor = useEditor({
 - Bold, italic and strike can't open next to punctuation inside a word in markdown (`a**-b**`), so that case doesn't survive a markdown round trip. Normal word-boundary formatting does.
 - Unknown marks are kept in JSON but dropped from markdown.
 - A `:::` directive inside a list item or blockquote isn't supported; put the list inside the directive.
-- Fields in `inputs`/`outputShape` are one level deep.
+- Pasting from a web page or Google Docs pastes plain text; only pasted markdown keeps its formatting.
+- No tables yet.
 - Only the CodeMirror adapter exists. `EditorAdapter` in core is the interface a ProseMirror adapter would implement.
 
 ## Developing

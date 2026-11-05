@@ -1,9 +1,9 @@
 import { assertDoc, HeraldParseError } from "./codec"
-import { Compilation, type CompileContext, type CompileOptions, type CompileResult } from "./compile"
+import { Compilation, type CompileContext, type CompileMode, type CompileOptions, type CompileResult, type HoistSlot } from "./compile"
 import { normalize } from "./normalize"
 import { validateSync, type StandardSchemaV1 } from "./standard-schema"
 import { find, walk } from "./traversal"
-import type { Attrs, Diagnostic, HeraldDoc, HeraldMark, HeraldNode, JSONValue } from "./types"
+import { DiagnosticCode, NodeType, type Attrs, type Diagnostic, type HeraldDoc, type HeraldMark, type HeraldNode, type JSONValue } from "./types"
 
 export type NodeCompiler<A = Attrs> = (
   node: HeraldNode & { attrs: A },
@@ -20,7 +20,7 @@ export interface NodeDef<A extends Record<string, unknown> = Attrs> {
 
 export interface MarkDef {
   type: string
-  compile?: (text: string, mark: HeraldMark, mode: "markdown" | "plain") => string
+  compile?: (text: string, mark: HeraldMark, mode: CompileMode) => string
 }
 
 /** One row in a `/` or `@` menu. */
@@ -48,7 +48,7 @@ export interface MentionAttrs {
 
 export interface FinalizeContext {
   collected: Record<string, unknown[]>
-  hoist(slot: "header" | "footer", text: string): void
+  hoist(slot: HoistSlot, text: string): void
 }
 
 export type DiagnoseOptions = Record<string, unknown>
@@ -127,22 +127,22 @@ export class Schema {
       const attrs = node.attrs as unknown as MentionAttrs
       const kind = this.mentionKinds.get(attrs.kind)
       if (!kind) {
-        out.push({ code: "unknown-mention-kind", message: `no mention kind "${attrs.kind}"`, node })
+        out.push({ code: DiagnosticCode.UnknownMentionKind, message: `no mention kind "${attrs.kind}"`, node })
         continue
       }
       const message = kind.diagnose?.(attrs, options)
       if (message) {
-        out.push({ code: `invalid-${attrs.kind}`, message, node })
+        out.push({ code: DiagnosticCode.InvalidMention, message, node })
       }
     }
     walk(doc, (node) => {
       const def = this.nodes.get(node.type)
       if (!def && !NATIVE_TYPES.has(node.type)) {
-        out.push({ code: "unknown-node", message: `no plugin defines "${node.type}"; kept as-is`, node })
+        out.push({ code: DiagnosticCode.UnknownNode, message: `no plugin defines "${node.type}"; kept as-is`, node })
       } else if (def?.attrs) {
         const result = validateSync(def.attrs, node.attrs ?? {})
         if ("error" in result) {
-          out.push({ code: "invalid-attrs", message: `${node.type}: ${result.error}`, node })
+          out.push({ code: DiagnosticCode.InvalidAttrs, message: `${node.type}: ${result.error}`, node })
         }
       }
     })
@@ -153,20 +153,7 @@ export class Schema {
   }
 }
 
-export const NATIVE_TYPES = new Set([
-  "doc",
-  "paragraph",
-  "heading",
-  "bulletList",
-  "orderedList",
-  "listItem",
-  "blockquote",
-  "codeBlock",
-  "horizontalRule",
-  "hardBreak",
-  "text",
-  "mention",
-])
+export const NATIVE_TYPES = new Set<string>(Object.values(NodeType))
 
 export function createSchema(plugins: Plugin[]): Schema {
   return new Schema(plugins)

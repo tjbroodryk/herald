@@ -8,8 +8,8 @@ import {
   WidgetType,
   type DecorationSet,
 } from "@codemirror/view"
-import type { AdapterHooks, BlockView, EditorAdapter, EditorClassKey, HeraldDoc, HeraldNode, Range } from "@herald/core"
-import { isInlineAtom, parseMarkdown, serializeMarkdown, serializeWithCursor, type ParseResult, type Span } from "@herald/markdown"
+import { MarkType, type AdapterHooks, type BlockView, type EditorAdapter, type EditorPart, type HeraldDoc, type HeraldNode, type Range } from "@herald/core"
+import { isInlineAtom, parseMarkdown, serializeMarkdown, serializeWithCursor, SpanKind, type ParseResult, type Span } from "@herald/markdown"
 import { dragBlocks, moveBlockCommand } from "./drag"
 
 export interface CodeMirrorOptions {
@@ -25,7 +25,7 @@ export function codemirror(options: CodeMirrorOptions = {}): CodeMirrorAdapter {
   return new CodeMirrorAdapter(options)
 }
 
-const DELIMS: Record<string, string> = { bold: "**", italic: "*", strike: "~~", code: "`" }
+const DELIMS: Record<string, string> = { [MarkType.Bold]: "**", [MarkType.Italic]: "*", [MarkType.Strike]: "~~", [MarkType.Code]: "`" }
 
 export class CodeMirrorAdapter implements EditorAdapter {
   view: EditorView | undefined
@@ -34,7 +34,7 @@ export class CodeMirrorAdapter implements EditorAdapter {
     update: (value, tr) => (tr.docChanged ? parseMarkdown(tr.state.doc.toString()) : value),
   })
 
-  private cls: (key: EditorClassKey) => string = (key) => `herald-${key}`
+  private cls: (key: EditorPart) => string = (key) => `herald-${key}`
 
   constructor(private readonly options: CodeMirrorOptions) {}
 
@@ -78,9 +78,9 @@ export class CodeMirrorAdapter implements EditorAdapter {
           ),
           draggable ? dragBlocks(parsed, this.cls) : [],
           keymap.of([
-            { key: "Mod-b", run: markKey("bold") },
-            { key: "Mod-i", run: markKey("italic") },
-            { key: "Mod-e", run: markKey("code") },
+            { key: "Mod-b", run: markKey(MarkType.Bold) },
+            { key: "Mod-i", run: markKey(MarkType.Italic) },
+            { key: "Mod-e", run: markKey(MarkType.Code) },
             ...(draggable
               ? [
                   { key: "Alt-Shift-ArrowUp", run: moveBlockCommand(parsed, -1) },
@@ -180,9 +180,9 @@ export class CodeMirrorAdapter implements EditorAdapter {
     const { from, to } = view.state.selection.main
     const active = view.state
       .field(this.parsed)
-      .spans.find((s) => s.kind === "style" && s.key === mark && s.from <= from && s.to >= to)
+      .spans.find((s) => s.kind === SpanKind.Style && s.key === mark && s.from <= from && s.to >= to)
     if (active) {
-      const len = mark === "code" ? 1 : delim.length
+      const len = mark === MarkType.Code ? 1 : delim.length
       view.dispatch({
         changes: [
           { from: active.from, to: active.from + len },
@@ -247,7 +247,7 @@ export class CodeMirrorAdapter implements EditorAdapter {
     const end = view.coordsAtPos(sel.to)
     const marks = view.state
       .field(this.parsed)
-      .spans.flatMap((s) => (s.kind === "style" && s.from <= sel.from && s.to >= sel.to ? [s.key] : []))
+      .spans.flatMap((s) => (s.kind === SpanKind.Style && s.from <= sel.from && s.to >= sel.to ? [s.key] : []))
     return {
       empty: sel.empty || !view.hasFocus,
       rect: {
@@ -282,31 +282,31 @@ export class CodeMirrorAdapter implements EditorAdapter {
   ) {
     const doc = state.doc
     switch (span.kind) {
-      case "hide":
+      case SpanKind.Hide:
         if (span.to > span.from && !revealed(span.reveal)) {
           decos.push(Decoration.replace({}).range(span.from, span.to))
         }
         return
-      case "style":
+      case SpanKind.Style:
         if (span.to > span.from) {
           decos.push(Decoration.mark({ class: this.cls(span.key) }).range(span.from, span.to))
         }
         return
-      case "lines": {
+      case SpanKind.Lines: {
         const last = doc.lineAt(Math.max(span.from, span.to - 1)).number
         for (let n = doc.lineAt(span.from).number; n <= last; n++) {
           decos.push(Decoration.line({ class: this.cls(span.key), attributes: span.attrs }).range(doc.line(n).from))
         }
         return
       }
-      case "label":
+      case SpanKind.Label:
         if (!revealed(span.reveal)) {
           decos.push(
             Decoration.replace({ widget: new LabelWidget(span.text, this.cls(span.key)) }).range(span.from, span.to),
           )
         }
         return
-      case "atom": {
+      case SpanKind.Atom: {
         if (span.block) {
           const from = doc.lineAt(span.from).from
           const deco = Decoration.replace({
@@ -329,7 +329,7 @@ export class CodeMirrorAdapter implements EditorAdapter {
     const pos = view.posAtDOM(dom)
     const span = view.state
       .field(this.parsed)
-      .spans.find((s) => s.kind === "atom" && s.block && view.state.doc.lineAt(s.from).from <= pos && s.to >= pos)
+      .spans.find((s) => s.kind === SpanKind.Atom && s.block && view.state.doc.lineAt(s.from).from <= pos && s.to >= pos)
     if (!span) {
       return
     }

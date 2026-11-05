@@ -1,25 +1,26 @@
 import { defineNode, type MentionAttrs, type MentionKind, type Plugin, type SuggestionItem } from "./schema"
 import { find } from "./traversal"
-import type { HeraldNode, JSONValue } from "./types"
+import { CompileMode } from "./compile"
+import { MarkType, NodeType, type HeraldNode, type JSONValue } from "./types"
 
 export function starterKit(): Plugin {
   const heading = (level: number): SuggestionItem => ({
     id: `heading-${level}`,
     label: `Heading ${level}`,
     detail: "#".repeat(level),
-    insert: () => ({ type: "heading", attrs: { level } }),
+    insert: () => ({ type: NodeType.Heading, attrs: { level } }),
   })
   const list = (type: string): HeraldNode => ({
     type,
-    content: [{ type: "listItem", content: [{ type: "paragraph" }] }],
+    content: [{ type: NodeType.ListItem, content: [{ type: NodeType.Paragraph }] }],
   })
   return {
     name: "starterKit",
     toolbar: [
-      { mark: "bold", label: "B", title: "Bold (⌘B)" },
-      { mark: "italic", label: "I", title: "Italic (⌘I)" },
-      { mark: "strike", label: "S", title: "Strikethrough" },
-      { mark: "code", label: "</>", title: "Code (⌘E)" },
+      { mark: MarkType.Bold, label: "B", title: "Bold (⌘B)" },
+      { mark: MarkType.Italic, label: "I", title: "Italic (⌘I)" },
+      { mark: MarkType.Strike, label: "S", title: "Strikethrough" },
+      { mark: MarkType.Code, label: "</>", title: "Code (⌘E)" },
     ],
     slash: [
       heading(1),
@@ -31,16 +32,16 @@ export function starterKit(): Plugin {
         id: "quote",
         label: "Quote",
         detail: ">",
-        insert: () => ({ type: "blockquote", content: [{ type: "paragraph" }] }),
+        insert: () => ({ type: NodeType.Blockquote, content: [{ type: NodeType.Paragraph }] }),
       },
-      { id: "code-block", label: "Code block", detail: "```", insert: () => ({ type: "codeBlock" }) },
-      { id: "divider", label: "Divider", detail: "---", insert: () => ({ type: "horizontalRule" }) },
+      { id: "code-block", label: "Code block", detail: "```", insert: () => ({ type: NodeType.CodeBlock }) },
+      { id: "divider", label: "Divider", detail: "---", insert: () => ({ type: NodeType.HorizontalRule }) },
     ],
   }
 }
 
 export interface MentionKindHandle {
-  readonly type: "mention"
+  readonly type: typeof NodeType.Mention
   readonly kind: string
   match(node: HeraldNode): boolean
   /** Every mention of this kind, one per id, in document order. */
@@ -52,7 +53,7 @@ export interface MentionKindHandle {
 
 export function mentionKind(kind: string): MentionKindHandle {
   const handle: MentionKindHandle = {
-    type: "mention",
+    type: NodeType.Mention,
     kind,
     match: (n) => n.attrs?.kind === kind,
     all: (doc) => {
@@ -65,7 +66,7 @@ export function mentionKind(kind: string): MentionKindHandle {
       }
       return [...seen.values()]
     },
-    node: (attrs) => ({ type: "mention", attrs: { ...attrs, kind } }),
+    node: (attrs) => ({ type: NodeType.Mention, attrs: { ...attrs, kind } }),
     item: (attrs, detail) => ({
       id: `${kind}:${attrs.id}`,
       label: attrs.label,
@@ -87,21 +88,21 @@ export function mentions<K extends string>(kinds: Record<K, MentionKind>): Plugi
 }
 
 export const section = defineNode<{ title?: string; color?: string }>({
-  type: "section",
+  type: NodeType.Section,
   compile: async (node, ctx) => {
     const body = await ctx.children()
     const title = node.attrs.title
     if (!title) {
       return body
     }
-    return ctx.mode === "markdown" ? `## ${title}\n\n${body}` : `${title}\n\n${body}`
+    return ctx.mode === CompileMode.Markdown ? `## ${title}\n\n${body}` : `${title}\n\n${body}`
   },
   slash: [
     {
       id: "section",
       label: "Section",
       detail: "titled group",
-      insert: () => ({ type: "section", attrs: { title: "Section" }, content: [{ type: "paragraph" }] }),
+      insert: () => ({ type: NodeType.Section, attrs: { title: "Section" }, content: [{ type: NodeType.Paragraph }] }),
     },
   ],
 })

@@ -1,8 +1,27 @@
 import { isInline } from "./normalize"
 import type { MentionAttrs, NodeCompiler, Schema } from "./schema"
-import type { Diagnostic, HeraldDoc, HeraldNode } from "./types"
+import { DiagnosticCode, MarkType, NodeType, type Diagnostic, type HeraldDoc, type HeraldNode } from "./types"
 
-export type CompileMode = "markdown" | "plain"
+export const CompileMode = {
+  /** Keeps formatting as markdown: headings, bold, lists, code fences. */
+  Markdown: "markdown",
+  /** Plain text: formatting markers dropped, link URLs in brackets. */
+  Plain: "plain",
+} as const
+export type CompileMode = (typeof CompileMode)[keyof typeof CompileMode]
+
+/** Where hoisted text goes in a document's prompt. */
+export const HoistSlot = { Header: "header", Footer: "footer" } as const
+export type HoistSlot = (typeof HoistSlot)[keyof typeof HoistSlot]
+
+/** What compile does when a resolver throws. */
+export const OnResolveError = {
+  /** Reject the compile. */
+  Throw: "throw",
+  /** Report a diagnostic and use the reference's fallback text. */
+  Fallback: "fallback",
+} as const
+export type OnResolveError = (typeof OnResolveError)[keyof typeof OnResolveError]
 
 type ResolverContext = { signal?: AbortSignal }
 
@@ -20,8 +39,8 @@ export interface CompileOptions {
   /** Replace any node's compiler for this call, keyed by node type. */
   override?: Record<string, NodeCompiler<any>>
   signal?: AbortSignal
-  /** "throw" (default) rejects when a resolver throws; "fallback" reports a diagnostic and uses the fallback text. */
-  onError?: "throw" | "fallback"
+  /** Default `OnResolveError.Throw`. */
+  onError?: OnResolveError
 }
 
 export interface CompileResult {
@@ -40,14 +59,14 @@ export interface CompileContext {
   childList(): Promise<string[]>
   collect(bucket: string, value: unknown): void
   /** Moves text to the top or bottom of the current document's prompt. */
-  hoist(slot: "header" | "footer", text: string): void
+  hoist(slot: HoistSlot, text: string): void
   resolve<T = unknown>(kind: string, id: string): Promise<T | undefined>
   /** Resolves and compiles a reference. Docs are compiled recursively; cycles and missing refs use `fallback`. */
   compileRef(kind: string, id: string, fallback: string): Promise<string>
   report(diagnostic: Diagnostic): void
 }
 
-type Hoists = { header: string[]; footer: string[] }
+type Hoists = Record<HoistSlot, string[]>
 
 export class Compilation {
   private readonly cache = new Map<string, Promise<unknown>>()
@@ -60,7 +79,7 @@ export class Compilation {
     private readonly schema: Schema,
     private readonly options: CompileOptions,
   ) {
-    this.mode = options.mode ?? "markdown"
+    this.mode = options.mode ?? CompileMode.Markdown
   }
 
   async run(doc: HeraldDoc): Promise<CompileResult> {
@@ -69,7 +88,7 @@ export class Compilation {
     const collected = Object.fromEntries(
       [...this.collected].map(([bucket, values]) => [bucket, [...values.values()]]),
     )
-    const finalize = { collected, hoist: (slot: keyof Hoists, text: string) => final[slot].push(text) }
+    const finalize = { collected, hoist: (slot: HoistSlot, text: string) => final[slot].push(text) }
     for (const plugin of this.schema.plugins) {
       plugin.finalize?.(finalize)
     }
@@ -96,7 +115,7 @@ export class Compilation {
     const compiler =
       this.options.override?.[node.type] ??
       this.schema.nodes.get(node.type)?.compile ??
-      (node.type === "mention" ? this.mention : NATIVE[node.type]) ??
+      (node.type === NodeType.Mention ? this.mention : NATIVE[node.type]) ??
       fallbackCompiler
     const kids = node.content ?? []
     const childList = () => Promise.all(kids.map((c) => this.node(c, stack, hoists)))
@@ -133,18 +152,18 @@ export class Compilation {
   private async compileRef(kind: string, id: string, fallback: string, stack: string[], node: HeraldNode) {
     const key = `${kind}:${id}`
     if (stack.includes(key)) {
-      this.diagnostics.push({ code: "cycle", message: `${[...stack, key].join(" -> ")}`, node })
+      this.diagnostics.push({ code: DiagnosticCode.Cycle, message: `${[...stack, key].join(" -> ")}`, node })
       return fallback
     }
     const value = await this.resolve(kind, id)
     if (value === undefined) {
-      this.diagnostics.push({ code: "missing-reference", message: `${key} not found`, node })
+      this.diagnostics.push({ code: DiagnosticCode.MissingReference, message: `${key} not found`, node })
       return fallback
     }
     if (typeof value === "string") {
       return value
     }
-    if (value && typeof value === "object" && (value as HeraldNode).type === "doc") {
+    if (value && typeof value === "object" && (value as HeraldNode).type === NodeType.Doc) {
       return this.document(value as HeraldDoc, [...stack, key])
     }
     return JSON.stringify(value)
@@ -158,7 +177,7 @@ export class Compilation {
     }
     const resolver = this.options.resolve?.[kind]
     if (!resolver) {
-      this.diagnostics.push({ code: "no-resolver", message: `no resolver for "${kind}"` })
+      this.diagnostics.push({ code: DiagnosticCode.NoResolver, message: `no resolver for "${kind}"` })
       return Promise.resolve(undefined)
     }
     const ctx = { signal: this.options.signal }
@@ -169,10 +188,10 @@ export class Compilation {
       promise = new Promise<unknown>((resolve) => this.enqueue(kind, id, resolver.many, resolve))
     }
     promise = promise.catch((error: unknown) => {
-      if (this.options.onError !== "fallback") {
+      if (this.options.onError !== OnResolveError.Fallback) {
         throw error
       }
-      this.diagnostics.push({ code: "resolve-failed", message: `${key}: ${String(error)}` })
+      this.diagnostics.push({ code: DiagnosticCode.ResolveFailed, message: `${key}: ${String(error)}` })
       return undefined
     })
     this.cache.set(key, promise)
@@ -220,20 +239,20 @@ function indent(text: string, first: string): string {
 
 function applyMarks(node: HeraldNode, mode: CompileMode): string {
   let text = node.text ?? ""
-  if (mode === "plain") {
-    const link = node.marks?.find((m) => m.type === "link")
+  if (mode === CompileMode.Plain) {
+    const link = node.marks?.find((m) => m.type === MarkType.Link)
     return link ? `${text} (${link.attrs?.href})` : text
   }
   for (const mark of [...(node.marks ?? [])].reverse()) {
-    if (mark.type === "code") {
+    if (mark.type === MarkType.Code) {
       text = `\`${text}\``
-    } else if (mark.type === "bold") {
+    } else if (mark.type === MarkType.Bold) {
       text = `**${text}**`
-    } else if (mark.type === "italic") {
+    } else if (mark.type === MarkType.Italic) {
       text = `*${text}*`
-    } else if (mark.type === "strike") {
+    } else if (mark.type === MarkType.Strike) {
       text = `~~${text}~~`
-    } else if (mark.type === "link") {
+    } else if (mark.type === MarkType.Link) {
       text = `[${text}](${mark.attrs?.href})`
     }
   }
@@ -252,7 +271,7 @@ const NATIVE: Record<string, NodeCompiler<any>> = {
   hardBreak: () => "\n",
   heading: async (node, ctx) => {
     const text = await ctx.children()
-    return ctx.mode === "markdown" ? `${"#".repeat(Number(node.attrs.level) || 1)} ${text}` : text
+    return ctx.mode === CompileMode.Markdown ? `${"#".repeat(Number(node.attrs.level) || 1)} ${text}` : text
   },
   listItem: (_n, ctx) => ctx.children(),
   bulletList: (_n, ctx) => listItems(ctx, () => "- "),
@@ -260,11 +279,11 @@ const NATIVE: Record<string, NodeCompiler<any>> = {
   blockquote: async (_n, ctx) =>
     (await ctx.children())
       .split("\n")
-      .map((l) => (ctx.mode === "markdown" ? `> ${l}` : l))
+      .map((l) => (ctx.mode === CompileMode.Markdown ? `> ${l}` : l))
       .join("\n"),
   codeBlock: (node) => {
     const code = (node.content ?? []).map((c) => c.text ?? "").join("")
     return "```" + (node.attrs.language ?? "") + "\n" + code + "\n```"
   },
-  horizontalRule: (_n, ctx) => (ctx.mode === "markdown" ? "---" : ""),
+  horizontalRule: (_n, ctx) => (ctx.mode === CompileMode.Markdown ? "---" : ""),
 }

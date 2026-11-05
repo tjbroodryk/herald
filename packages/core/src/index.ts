@@ -1,5 +1,5 @@
-export type * from "./types"
-export type * from "./adapter"
+export * from "./types"
+export * from "./adapter"
 export type { StandardSchemaV1 } from "./standard-schema"
 export {
   createSchema,
@@ -16,7 +16,15 @@ export {
   type SuggestionItem,
   type ToolbarItem,
 } from "./schema"
-export type { CompileContext, CompileMode, CompileOptions, CompileResult, Resolver } from "./compile"
+export {
+  CompileMode,
+  HoistSlot,
+  OnResolveError,
+  type CompileContext,
+  type CompileOptions,
+  type CompileResult,
+  type Resolver,
+} from "./compile"
 export { find, matches, replace, walk, type Selector } from "./traversal"
 export { normalize } from "./normalize"
 // used by @herald/markdown; not part of the documented API

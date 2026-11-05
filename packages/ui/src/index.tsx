@@ -4,6 +4,7 @@ import type { CompileOptions, DiagnoseOptions, HeraldDoc, Schema } from "@herald
 import {
   DocView as HeadlessDocView,
   INSPECTOR_TABS,
+  InspectorTab,
   useInspector,
   usePromptEditor,
   type HeraldEditor,
@@ -121,7 +122,7 @@ export interface InspectorProps {
 /** Shows what the editor produces: the compiled prompt, the JSON state, its markdown, collected values and diagnostics. */
 export function Inspector({ editor, compile, diagnose, className }: InspectorProps) {
   const { diagnostics, text } = useInspector(editor, { compile, diagnose })
-  const [tab, setTab] = useState<(typeof INSPECTOR_TABS)[number]>("prompt")
+  const [tab, setTab] = useState<InspectorTab>(InspectorTab.Prompt)
   return (
     <div className={cx("herald-inspector", className)}>
       <div role="tablist" className="herald-inspector-tabs">

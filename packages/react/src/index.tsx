@@ -8,23 +8,24 @@ import {
   type RefObject,
 } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import type {
-  CompileOptions,
-  CompileResult,
-  DiagnoseOptions,
-  Diagnostic,
-  EditorAdapter,
-  EditorClasses,
-  HeraldDoc,
-  HeraldNode,
-  MentionKind,
-  Schema,
-  SelectionState,
-  SuggestionItem,
-  ToolbarItem,
-  TriggerState,
+import {
+  NodeType,
+  type CompileOptions,
+  type CompileResult,
+  type DiagnoseOptions,
+  type Diagnostic,
+  type EditorAdapter,
+  type EditorClasses,
+  type HeraldDoc,
+  type HeraldNode,
+  type MentionKind,
+  type Schema,
+  type SelectionState,
+  type SuggestionItem,
+  type ToolbarItem,
+  type TriggerState,
 } from "@herald/core"
-import { FIELD_TYPES, type Field, type FieldShape, type FieldType } from "@herald/agent"
+import { FIELD_TYPES, FieldType, type Field, type FieldShape } from "@herald/agent"
 import { markdown } from "@herald/markdown"
 
 // Headless: state and behaviour for building a Herald editor UI, no markup and no styles.
@@ -92,7 +93,7 @@ export class HeraldEditor {
     this.triggers = options.triggers ?? [trigger("/", { items: "slash" })]
     this.views = options.views ?? {}
     this.onChange = options.onChange
-    const content = options.content ?? { type: "doc" }
+    const content = options.content ?? { type: NodeType.Doc }
     this.doc = typeof content === "string" ? markdown.decode(content) : options.schema.parse(content)
   }
 
@@ -126,6 +127,10 @@ export function useDoc(editor: HeraldEditor): HeraldDoc {
   return useSyncExternalStore(editor.subscribe, editor.getDoc)
 }
 
+/** Which side of the trigger a menu opens on. */
+export const MenuPlacement = { Top: "top", Bottom: "bottom" } as const
+export type MenuPlacement = (typeof MenuPlacement)[keyof typeof MenuPlacement]
+
 /** An open `@` or `/` menu. Render `items` in an element with `style` (fixed next to the trigger), portaled to body. */
 export interface MenuState {
   trigger: string
@@ -133,7 +138,7 @@ export interface MenuState {
   items: SuggestionItem[]
   active: number
   loading: boolean
-  placement: "top" | "bottom"
+  placement: MenuPlacement
   style: CSSProperties
   kinds: Map<string, MentionKind>
   setActive(index: number): void
@@ -321,7 +326,7 @@ function useMenu(
     items,
     active,
     loading,
-    placement: above ? "top" : "bottom",
+    placement: above ? MenuPlacement.Top : MenuPlacement.Bottom,
     style: above
       ? { position: "fixed", left: trig.rect.left, bottom: window.innerHeight - trig.rect.top + 4 }
       : { position: "fixed", left: trig.rect.left, top: trig.rect.bottom + 4 },
@@ -357,7 +362,7 @@ export function useFields({ node, update }: BlockViewProps): FieldsApi {
   useEffect(() => setFields(incoming), [key])
 
   const edit = (path: FieldPath, fn: (shape: FieldShape) => FieldShape) => {
-    const next = (updateAt({ type: "object", fields }, path, fn).fields ?? []) as Field[]
+    const next = (updateAt({ type: FieldType.Object, fields }, path, fn).fields ?? []) as Field[]
     setFields(next)
     update({ ...node, attrs: { ...node.attrs, fields: next as never } })
   }
@@ -368,7 +373,7 @@ export function useFields({ node, update }: BlockViewProps): FieldsApi {
     add: (path) =>
       edit(path, (shape) => {
         const list = shape.fields ?? []
-        return { ...shape, fields: [...list, { name: `field_${list.length + 1}`, type: "string" }] }
+        return { ...shape, fields: [...list, { name: `field_${list.length + 1}`, type: FieldType.String }] }
       }),
     remove: (path) => {
       const index = path.at(-1) as number
@@ -383,7 +388,7 @@ function updateAt(shape: FieldShape, path: FieldPath, fn: (shape: FieldShape) =>
     return fn(shape)
   }
   if (head === "items") {
-    return { ...shape, items: updateAt(shape.items ?? { type: "string" }, rest, fn) }
+    return { ...shape, items: updateAt(shape.items ?? { type: FieldType.String }, rest, fn) }
   }
   return {
     ...shape,
@@ -394,17 +399,25 @@ function updateAt(shape: FieldShape, path: FieldPath, fn: (shape: FieldShape) =>
 // keep children consistent with the type: objects have fields, arrays have an item shape, scalars have neither
 function withType<S extends FieldShape>(shape: S): S {
   const { fields, items, ...rest } = shape
-  if (shape.type === "object") {
+  if (shape.type === FieldType.Object) {
     return { ...rest, fields: fields ?? [] } as S
   }
-  if (shape.type === "array") {
-    return { ...rest, items: items ?? { type: "string" } } as S
+  if (shape.type === FieldType.Array) {
+    return { ...rest, items: items ?? { type: FieldType.String } } as S
   }
   return rest as S
 }
 
-export const INSPECTOR_TABS = ["prompt", "json", "markdown", "collected", "diagnostics"] as const
-export type InspectorTab = (typeof INSPECTOR_TABS)[number]
+export const InspectorTab = {
+  Prompt: "prompt",
+  Json: "json",
+  Markdown: "markdown",
+  Collected: "collected",
+  Diagnostics: "diagnostics",
+} as const
+export type InspectorTab = (typeof InspectorTab)[keyof typeof InspectorTab]
+/** The tabs in display order. */
+export const INSPECTOR_TABS: InspectorTab[] = Object.values(InspectorTab)
 
 /**
  * What the editor produces: compiled prompt, JSON, markdown, collected values and diagnostics, as text per tab.
@@ -429,15 +442,15 @@ export function useInspector(editor: HeraldEditor, options: { compile?: CompileO
   ]
   const text = (tab: InspectorTab): string => {
     switch (tab) {
-      case "prompt":
+      case InspectorTab.Prompt:
         return result ? ("error" in result ? result.error : result.prompt) : "compiling…"
-      case "json":
+      case InspectorTab.Json:
         return JSON.stringify(doc, null, 2)
-      case "markdown":
+      case InspectorTab.Markdown:
         return markdown.encode(doc)
-      case "collected":
+      case InspectorTab.Collected:
         return result && "collected" in result ? JSON.stringify(result.collected, null, 2) : ""
-      case "diagnostics":
+      case InspectorTab.Diagnostics:
         return diagnostics.length ? diagnostics.map((d) => `${d.code}  ${d.message}`).join("\n") : "no problems"
     }
   }
