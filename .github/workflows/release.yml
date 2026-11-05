@@ -1,0 +1,55 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # GitHub release
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+
+      - name: Tag matches every package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          for p in packages/*/package.json; do
+            v=$(jq -r .version "$p")
+            if [ "$v" != "$tag" ]; then
+              echo "$p is $v, tag is $tag. Run: bun run version:set $tag"
+              exit 1
+            fi
+          done
+
+      - run: bun check
+      - run: bun test
+      - run: bun run build
+
+      # bun pm pack swaps workspace:* for the real version; npm publishes the tarball with provenance
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for p in core markdown agent codemirror react; do
+            (cd "packages/$p" && bun pm pack --destination ../../packs)
+          done
+          for t in packs/*.tgz; do
+            npm publish "$t" --access public --provenance
+          done
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes packs/*.tgz

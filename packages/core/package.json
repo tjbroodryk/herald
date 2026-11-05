@@ -1,0 +1,26 @@
+{
+  "name": "@herald/core",
+  "version": "0.1.0",
+  "description": "Herald's document model, plugins, prompt compiler and traversal. No dependencies.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tjbroodryk/herald.git",
+    "directory": "packages/core"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && bun build src/index.ts --outdir dist --format esm --target browser --packages external && tsc -p tsconfig.build.json"
+  }
+}

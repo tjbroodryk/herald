@@ -1,0 +1,299 @@
+/* The playground uses Barrio. The first block shows how an app themes Herald: point its variables at your tokens. */
+:root {
+  --herald-font: var(--font-mono);
+  --herald-mono: var(--font-mono);
+  --herald-font-size: 14px;
+  --herald-radius: var(--radius-lg);
+  --herald-radius-sm: var(--radius-sm);
+  --herald-bg: var(--bg);
+  --herald-surface: var(--surface);
+  --herald-wash: var(--wash);
+  --herald-fg: var(--ink);
+  --herald-muted: var(--ink-muted);
+  --herald-border: var(--edge);
+  --herald-accent: var(--accent);
+  --herald-accent-tint: var(--accent-tint);
+  --herald-selection: var(--accent-tint);
+  --herald-danger: var(--chile);
+  --herald-shadow-pop: var(--shadow-pop);
+  --herald-color-tool: var(--cat-4);
+  --herald-color-input: var(--cat-1);
+  --herald-color-user: var(--cat-3);
+  --herald-color-document: var(--cat-5);
+  --herald-color-command: var(--cat-2);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-variant-ligatures: none;
+}
+
+.page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.top {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.top h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 24px;
+  color: var(--ink);
+}
+
+.prompt {
+  color: var(--cilantro);
+}
+
+.muted {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.btn {
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+
+.btn:hover {
+  border-color: var(--edge-strong);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.badge {
+  font-size: 12px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1.5px solid;
+}
+
+.badge.ok {
+  color: var(--cilantro);
+  background: var(--cilantro-tint);
+}
+
+.badge.bad {
+  color: var(--chile-deep);
+  background: var(--chile-tint);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-4);
+  min-width: 0;
+}
+
+.inspector-card .herald-inspector {
+  height: min(72vh, 760px);
+  border-color: var(--rule);
+  background: var(--bg);
+}
+
+.label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  margin-bottom: var(--space-3);
+}
+
+.label .muted {
+  letter-spacing: normal;
+  font-weight: 400;
+  margin-left: var(--space-2);
+}
+
+.br {
+  color: var(--salsa);
+}
+
+.hints {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.9;
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 0 5px;
+  border: 1px solid var(--edge);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.nav {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.nav a {
+  font-size: 12px;
+  color: var(--ink-muted);
+  text-decoration: none;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.nav a:hover {
+  background: var(--wash);
+  color: var(--ink);
+}
+
+.nav a[aria-current="page"] {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--salsa);
+  border-radius: 0;
+}
+
+/* chat */
+.chat-page {
+  max-width: 820px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.messages {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.empty code {
+  color: var(--ink);
+}
+
+.bubble {
+  max-width: 85%;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--edge);
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: var(--accent-tint);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.bubble.assistant {
+  align-self: flex-start;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.bubble.assistant .label {
+  margin-bottom: var(--space-2);
+}
+
+.bubble pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.composer {
+  position: sticky;
+  bottom: var(--space-4);
+  padding: var(--space-3);
+  box-shadow: var(--shadow-md);
+}
+
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+/* a chat input is one line that grows, then scrolls */
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  --herald-padding: 8px 10px;
+}
+
+.chat-input .cm-scroller {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.send {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+  padding: 7px var(--space-4);
+}
+
+.send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.hint {
+  margin-top: var(--space-2);
+}

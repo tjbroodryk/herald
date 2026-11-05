@@ -1,0 +1,31 @@
+{
+  "name": "herald-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "example": "bun --hot example/server.ts",
+    "test": "bun test",
+    "typecheck": "bun check",
+    "build": "for p in core markdown agent codemirror react; do (cd packages/$p && bun run build) || exit 1; done",
+    "build:site": "rm -rf site && bun build example/index.html example/chat.html --outdir site --minify --splitting --conditions bun --public-path ./ --define process.env.NODE_ENV='\"production\"'",
+    "version:set": "bun scripts/version.ts"
+  },
+  "devDependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "@herald/agent": "workspace:*",
+    "@herald/codemirror": "workspace:*",
+    "@herald/core": "workspace:*",
+    "@herald/markdown": "workspace:*",
+    "@herald/react": "workspace:*",
+    "@types/bun": "latest",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7"
+  }
+}

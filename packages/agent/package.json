@@ -1,0 +1,29 @@
+{
+  "name": "@herald/agent",
+  "version": "0.1.0",
+  "description": "Herald plugins for agent prompts: typed inputs, output shapes, tools.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tjbroodryk/herald.git",
+    "directory": "packages/agent"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && bun build src/index.ts --outdir dist --format esm --target browser --packages external && tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@herald/core": "workspace:*"
+  }
+}

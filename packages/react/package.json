@@ -1,0 +1,38 @@
+{
+  "name": "@herald/react",
+  "version": "0.1.0",
+  "description": "React components for Herald: editor, menus, toolbar, Inspector, DocView.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tjbroodryk/herald.git",
+    "directory": "packages/react"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "exports": {
+    ".": {
+      "bun": "./src/index.tsx",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "scripts": {
+    "build": "rm -rf dist && bun build src/index.tsx --outdir dist --format esm --target browser --packages external && tsc -p tsconfig.build.json && cp src/styles.css dist/styles.css"
+  },
+  "dependencies": {
+    "@herald/core": "workspace:*",
+    "@herald/markdown": "workspace:*",
+    "@herald/agent": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  }
+}

@@ -1,0 +1,334 @@
+/*
+ * Herald's default look. Everything is in the `herald` layer, so any unlayered CSS in your app wins without
+ * !important. With Tailwind v4, declare `@layer herald, theme, base, components, utilities;` first.
+ * Theme it by setting the --herald-* variables on :root or any ancestor.
+ */
+@layer herald {
+  :root {
+    --herald-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --herald-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --herald-font-size: 15px;
+    --herald-line-height: 1.6;
+    --herald-padding: 14px 16px 14px 24px; /* room on the left for drag handles */
+    --herald-radius: 8px;
+    --herald-radius-sm: 4px;
+
+    --herald-bg: #ffffff;
+    --herald-surface: #ffffff;
+    --herald-wash: #f4f4f5;
+    --herald-fg: #18181b;
+    --herald-muted: #71717a;
+    --herald-border: #e4e4e7;
+    --herald-accent: #4f46e5;
+    --herald-accent-tint: #eef2ff;
+    --herald-selection: #c7d2fe;
+    --herald-danger: #dc2626;
+    --herald-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+    --herald-shadow-pop: 0 8px 28px rgb(0 0 0 / 0.14), 0 1px 3px rgb(0 0 0 / 0.08);
+
+    /* mention kind colours, used by the built-in kinds */
+    --herald-color-tool: #b45309;
+    --herald-color-input: #047857;
+    --herald-color-user: #4f46e5;
+    --herald-color-document: #be185d;
+    --herald-block-color: var(--herald-accent);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --herald-bg: #18181b;
+      --herald-surface: #1f1f23;
+      --herald-wash: #27272a;
+      --herald-fg: #f4f4f5;
+      --herald-muted: #a1a1aa;
+      --herald-border: #3f3f46;
+      --herald-accent: #818cf8;
+      --herald-accent-tint: #1e1b4b;
+      --herald-selection: #3730a3;
+      --herald-danger: #f87171;
+      --herald-color-tool: #f59e0b;
+      --herald-color-input: #34d399;
+      --herald-color-user: #818cf8;
+      --herald-color-document: #f472b6;
+    }
+  }
+
+  [data-theme="dark"] {
+    --herald-bg: #18181b;
+    --herald-surface: #1f1f23;
+    --herald-wash: #27272a;
+    --herald-fg: #f4f4f5;
+    --herald-muted: #a1a1aa;
+    --herald-border: #3f3f46;
+    --herald-accent: #818cf8;
+    --herald-accent-tint: #1e1b4b;
+    --herald-selection: #3730a3;
+    --herald-danger: #f87171;
+    --herald-color-tool: #f59e0b;
+    --herald-color-input: #34d399;
+    --herald-color-user: #818cf8;
+    --herald-color-document: #f472b6;
+  }
+
+  .herald-editor {
+    background: var(--herald-surface);
+    color: var(--herald-fg);
+    border: 1px solid var(--herald-border);
+    border-radius: var(--herald-radius);
+    font-family: var(--herald-font);
+    min-height: 120px;
+  }
+
+  .herald-editor:focus-within {
+    border-color: var(--herald-accent);
+    box-shadow: 0 0 0 3px var(--herald-accent-tint);
+  }
+
+  /* markdown, drawn rich */
+  /* CodeMirror owns .cm-line padding, so lines set these variables instead (read by the adapter's theme) */
+  .herald-h1 { font-size: 1.6em; font-weight: 700; line-height: 1.3; --herald-line-top: 0.3em; }
+  .herald-h2 { font-size: 1.3em; font-weight: 650; line-height: 1.35; --herald-line-top: 0.25em; }
+  .herald-h3, .herald-h4, .herald-h5, .herald-h6 { font-size: 1.1em; font-weight: 600; }
+  .herald-bold { font-weight: 700; }
+  .herald-italic { font-style: italic; }
+  .herald-strike { text-decoration: line-through; }
+  .herald-code {
+    font-family: var(--herald-mono);
+    font-size: 0.9em;
+    background: var(--herald-wash);
+    border-radius: var(--herald-radius-sm);
+    padding: 0.1em 0.3em;
+  }
+  .herald-link { color: var(--herald-accent); text-decoration: underline; text-underline-offset: 2px; }
+  .herald-syntax, .herald-list-mark { color: var(--herald-muted); }
+  .herald-quote { border-left: 3px solid var(--herald-border); --herald-line-indent: 12px; color: var(--herald-muted); }
+  .herald-code-block {
+    font-family: var(--herald-mono);
+    font-size: 0.9em;
+    background: var(--herald-wash);
+    --herald-line-indent: 12px;
+  }
+  .herald-hr { border-bottom: 1px solid var(--herald-border); line-height: 0.8; }
+
+  /* :::directive blocks (sections) */
+  .herald-directive {
+    border-left: 3px solid var(--herald-block-color);
+    background: color-mix(in srgb, var(--herald-block-color) 6%, transparent);
+    --herald-line-indent: 12px;
+  }
+  .herald-directive-open { --herald-line-top: 4px; }
+  .herald-directive-close { line-height: 0.6; }
+  .herald-directive-title {
+    font-size: 0.75em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--herald-block-color);
+  }
+
+  /* drag handles (the CodeMirror adapter adds them to .cm-editor) */
+  .herald-drag-handle {
+    position: absolute;
+    left: 4px;
+    width: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    letter-spacing: -4px;
+    color: var(--herald-muted);
+    border-radius: var(--herald-radius-sm);
+    cursor: grab;
+    user-select: none;
+    z-index: 5;
+  }
+  .herald-drag-handle:hover { background: var(--herald-wash); color: var(--herald-fg); }
+  .herald-dragging, .herald-dragging * { cursor: grabbing !important; }
+  .herald-drop-line {
+    position: absolute;
+    left: 20px;
+    right: 12px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--herald-accent);
+    pointer-events: none;
+    z-index: 5;
+  }
+  .herald-drag-ghost {
+    position: absolute;
+    left: 20px;
+    right: 12px;
+    border-radius: var(--herald-radius-sm);
+    background: color-mix(in srgb, var(--herald-accent) 10%, transparent);
+    pointer-events: none;
+  }
+
+  /* mention chips */
+  .herald-chip {
+    --herald-kind-color: var(--herald-accent);
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: var(--herald-radius-sm);
+    font-size: 0.92em;
+    line-height: 1.5;
+    color: var(--herald-kind-color);
+    background: color-mix(in srgb, var(--herald-kind-color) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--herald-kind-color) 30%, transparent);
+    cursor: default;
+    white-space: nowrap;
+  }
+
+  /* block atoms: inputs, output shape */
+  .herald-block {
+    margin: 6px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--herald-border);
+    border-radius: var(--herald-radius);
+    background: var(--herald-bg);
+    font-size: 0.9em;
+  }
+  .herald-block-title {
+    font-size: 0.75em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--herald-muted);
+    margin-bottom: 6px;
+  }
+  .herald-block pre { margin: 0; font-family: var(--herald-mono); white-space: pre-wrap; }
+  .herald-field { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .herald-field input:not([type]),
+  .herald-field select {
+    font: inherit;
+    color: inherit;
+    background: var(--herald-surface);
+    border: 1px solid var(--herald-border);
+    border-radius: var(--herald-radius-sm);
+    padding: 2px 6px;
+  }
+  .herald-field input.herald-field-name { font-family: var(--herald-mono); width: 9em; }
+  .herald-field-description { flex: 1; min-width: 8em; }
+  .herald-field-required { display: flex; align-items: center; gap: 4px; color: var(--herald-muted); }
+  .herald-field button,
+  .herald-block-add {
+    font: inherit;
+    color: var(--herald-muted);
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--herald-radius-sm);
+    cursor: pointer;
+    padding: 2px 6px;
+  }
+  .herald-field button:hover,
+  .herald-block-add:hover { color: var(--herald-fg); border-color: var(--herald-border); }
+
+  /* floating layers: menus and the selection toolbar */
+  .herald-floating {
+    z-index: 1000;
+    font-family: var(--herald-font);
+    font-size: 14px;
+    color: var(--herald-fg);
+    background: var(--herald-surface);
+    border: 1px solid var(--herald-border);
+    border-radius: var(--herald-radius);
+    box-shadow: var(--herald-shadow-pop);
+  }
+  .herald-menu { min-width: 220px; max-width: 320px; max-height: 300px; overflow-y: auto; padding: 4px; }
+  .herald-menu-list { list-style: none; margin: 0; padding: 0; }
+  .herald-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: var(--herald-radius-sm);
+    cursor: pointer;
+  }
+  .herald-menu-item[data-active] { background: var(--herald-accent-tint); }
+  .herald-menu-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .herald-menu-detail { color: var(--herald-muted); font-size: 0.85em; font-family: var(--herald-mono); }
+  .herald-menu-empty { padding: 6px 8px; color: var(--herald-muted); }
+  .herald-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--herald-kind-color, var(--herald-accent));
+    flex: none;
+  }
+  .herald-toolbar { display: flex; gap: 2px; padding: 3px; }
+  .herald-toolbar-button {
+    font: inherit;
+    font-weight: 600;
+    min-width: 28px;
+    height: 28px;
+    color: var(--herald-fg);
+    background: none;
+    border: 0;
+    border-radius: var(--herald-radius-sm);
+    cursor: pointer;
+  }
+  .herald-toolbar-button[data-mark="italic"] { font-style: italic; }
+  .herald-toolbar-button[data-mark="strike"] { text-decoration: line-through; }
+  .herald-toolbar-button[data-mark="code"] { font-family: var(--herald-mono); font-size: 12px; }
+  .herald-toolbar-button:hover { background: var(--herald-wash); }
+  .herald-toolbar-button[aria-pressed="true"] { color: var(--herald-accent); background: var(--herald-accent-tint); }
+
+  /* read-only DocView */
+  .herald-doc { font-family: var(--herald-font); line-height: var(--herald-line-height); color: var(--herald-fg); }
+  .herald-doc > :first-child { margin-top: 0; }
+  .herald-doc > :last-child { margin-bottom: 0; }
+  .herald-doc p, .herald-doc ul, .herald-doc ol, .herald-doc pre, .herald-doc blockquote { margin: 0.5em 0; }
+  .herald-doc ul, .herald-doc ol { padding-left: 1.4em; }
+  .herald-doc code { font-family: var(--herald-mono); font-size: 0.9em; background: var(--herald-wash); border-radius: var(--herald-radius-sm); padding: 0.1em 0.3em; }
+  .herald-doc pre { background: var(--herald-wash); border-radius: var(--herald-radius-sm); padding: 8px 12px; overflow-x: auto; }
+  .herald-doc pre code { background: none; padding: 0; }
+  .herald-doc blockquote { border-left: 3px solid var(--herald-border); padding-left: 12px; color: var(--herald-muted); }
+  .herald-doc a { color: var(--herald-accent); }
+  .herald-doc-block { border-left: 3px solid var(--herald-block-color); padding-left: 12px; }
+
+  /* inspector */
+  .herald-inspector {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    font-family: var(--herald-font);
+    color: var(--herald-fg);
+    background: var(--herald-surface);
+    border: 1px solid var(--herald-border);
+    border-radius: var(--herald-radius);
+  }
+  .herald-inspector-tabs { display: flex; gap: 2px; padding: 6px; border-bottom: 1px solid var(--herald-border); flex-wrap: wrap; }
+  .herald-inspector-tabs button {
+    font: inherit;
+    font-size: 13px;
+    color: var(--herald-muted);
+    background: none;
+    border: 0;
+    border-radius: var(--herald-radius-sm);
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .herald-inspector-tabs button[aria-selected="true"] { color: var(--herald-fg); background: var(--herald-wash); }
+  .herald-count {
+    margin-left: 6px;
+    padding: 0 5px;
+    border-radius: 999px;
+    font-size: 11px;
+    color: #fff;
+    background: var(--herald-danger);
+  }
+  .herald-inspector-body {
+    margin: 0;
+    padding: 12px 14px;
+    overflow: auto;
+    flex: 1;
+    font-family: var(--herald-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .herald-editor *:focus-visible,
+  .herald-floating *:focus-visible,
+  .herald-inspector *:focus-visible { outline: 2px solid var(--herald-accent); outline-offset: 1px; }
+}

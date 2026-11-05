@@ -1,0 +1,12 @@
+{
+  // shared by packages/*/tsconfig.build.json; emits .d.ts only (bun build writes the JS)
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "allowImportingTsExtensions": false,
+    // other @herald packages resolve to their built .d.ts, so packages build in dependency order
+    "customConditions": []
+  }
+}

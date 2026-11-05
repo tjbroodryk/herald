@@ -1,0 +1,31 @@
+{
+  "name": "@herald/markdown",
+  "version": "0.1.0",
+  "description": "Markdown storage for Herald docs: parse, serialize, round-trip.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tjbroodryk/herald.git",
+    "directory": "packages/markdown"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && bun build src/index.ts --outdir dist --format esm --target browser --packages external && tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@herald/core": "workspace:*",
+    "@lezer/common": "^1.5.5",
+    "@lezer/markdown": "^1.8.1"
+  }
+}

@@ -1,0 +1,270 @@
+import { isInline } from "./normalize"
+import type { MentionAttrs, NodeCompiler, Schema } from "./schema"
+import type { Diagnostic, HeraldDoc, HeraldNode } from "./types"
+
+export type CompileMode = "markdown" | "plain"
+
+type ResolverContext = { signal?: AbortSignal }
+
+/** Fetches what a node refers to. Return undefined when it doesn't exist. */
+export type Resolver =
+  | ((id: string, ctx: ResolverContext) => unknown | Promise<unknown>)
+  | {
+      /** Called once per depth with every id requested at that depth. Return a Map, or values in id order. */
+      many: (ids: string[], ctx: ResolverContext) => Promise<Map<string, unknown> | unknown[]>
+    }
+
+export interface CompileOptions {
+  mode?: CompileMode
+  resolve?: Record<string, Resolver>
+  /** Replace any node's compiler for this call, keyed by node type. */
+  override?: Record<string, NodeCompiler<any>>
+  signal?: AbortSignal
+  /** "throw" (default) rejects when a resolver throws; "fallback" reports a diagnostic and uses the fallback text. */
+  onError?: "throw" | "fallback"
+}
+
+export interface CompileResult {
+  prompt: string
+  /** Values collected while compiling, e.g. `collected.tools`. Deduplicated, in first-seen order. */
+  collected: Record<string, unknown[]>
+  diagnostics: Diagnostic[]
+}
+
+export interface CompileContext {
+  readonly mode: CompileMode
+  readonly node: HeraldNode
+  /** Compiles this node's children: inline children are concatenated, blocks are joined with blank lines. */
+  children(): Promise<string>
+  /** Each child compiled separately, in order. */
+  childList(): Promise<string[]>
+  collect(bucket: string, value: unknown): void
+  /** Moves text to the top or bottom of the current document's prompt. */
+  hoist(slot: "header" | "footer", text: string): void
+  resolve<T = unknown>(kind: string, id: string): Promise<T | undefined>
+  /** Resolves and compiles a reference. Docs are compiled recursively; cycles and missing refs use `fallback`. */
+  compileRef(kind: string, id: string, fallback: string): Promise<string>
+  report(diagnostic: Diagnostic): void
+}
+
+type Hoists = { header: string[]; footer: string[] }
+
+export class Compilation {
+  private readonly cache = new Map<string, Promise<unknown>>()
+  private readonly batches = new Map<string, Map<string, (v: Promise<unknown>) => void>>()
+  private readonly collected = new Map<string, Map<string, unknown>>()
+  private readonly diagnostics: Diagnostic[] = []
+  private readonly mode: CompileMode
+
+  constructor(
+    private readonly schema: Schema,
+    private readonly options: CompileOptions,
+  ) {
+    this.mode = options.mode ?? "markdown"
+  }
+
+  async run(doc: HeraldDoc): Promise<CompileResult> {
+    const body = await this.document(doc, [])
+    const final: Hoists = { header: [], footer: [] }
+    const collected = Object.fromEntries(
+      [...this.collected].map(([bucket, values]) => [bucket, [...values.values()]]),
+    )
+    const finalize = { collected, hoist: (slot: keyof Hoists, text: string) => final[slot].push(text) }
+    for (const plugin of this.schema.plugins) {
+      plugin.finalize?.(finalize)
+    }
+    for (const kind of this.schema.mentionKinds.values()) {
+      if (kind.collect && kind.finalize && collected[kind.collect]?.length) {
+        kind.finalize(collected[kind.collect] as string[], finalize)
+      }
+    }
+    return {
+      prompt: join([...final.header, body, ...final.footer]),
+      collected,
+      diagnostics: this.diagnostics,
+    }
+  }
+
+  private async document(doc: HeraldDoc, stack: string[]): Promise<string> {
+    const hoists: Hoists = { header: [], footer: [] }
+    const body = await this.node(doc, stack, hoists)
+    return join([...hoists.header, body, ...hoists.footer])
+  }
+
+  private node(node: HeraldNode, stack: string[], hoists: Hoists): Promise<string> {
+    this.options.signal?.throwIfAborted()
+    const compiler =
+      this.options.override?.[node.type] ??
+      this.schema.nodes.get(node.type)?.compile ??
+      (node.type === "mention" ? this.mention : NATIVE[node.type]) ??
+      fallbackCompiler
+    const kids = node.content ?? []
+    const childList = () => Promise.all(kids.map((c) => this.node(c, stack, hoists)))
+    const ctx: CompileContext = {
+      mode: this.mode,
+      node,
+      childList,
+      children: async () => {
+        const parts = await childList()
+        return kids.some(isInline) ? parts.join("") : join(parts)
+      },
+      collect: (bucket, value) => {
+        const values = this.collected.get(bucket) ?? new Map()
+        values.set(JSON.stringify(value), value)
+        this.collected.set(bucket, values)
+      },
+      hoist: (slot, text) => hoists[slot].push(text),
+      resolve: (kind, id) => this.resolve(kind, id) as Promise<any>,
+      compileRef: (kind, id, fallback) => this.compileRef(kind, id, fallback, stack, node),
+      report: (d) => this.diagnostics.push(d),
+    }
+    return Promise.resolve(compiler({ ...node, attrs: node.attrs ?? {} }, ctx))
+  }
+
+  private mention: NodeCompiler = (node, ctx) => {
+    const attrs = node.attrs as MentionAttrs
+    const kind = this.schema.mentionKinds.get(attrs.kind)
+    if (kind?.collect) {
+      ctx.collect(kind.collect, attrs.id)
+    }
+    return kind?.compile ? kind.compile(attrs, ctx) : `@${attrs.label}`
+  }
+
+  private async compileRef(kind: string, id: string, fallback: string, stack: string[], node: HeraldNode) {
+    const key = `${kind}:${id}`
+    if (stack.includes(key)) {
+      this.diagnostics.push({ code: "cycle", message: `${[...stack, key].join(" -> ")}`, node })
+      return fallback
+    }
+    const value = await this.resolve(kind, id)
+    if (value === undefined) {
+      this.diagnostics.push({ code: "missing-reference", message: `${key} not found`, node })
+      return fallback
+    }
+    if (typeof value === "string") {
+      return value
+    }
+    if (value && typeof value === "object" && (value as HeraldNode).type === "doc") {
+      return this.document(value as HeraldDoc, [...stack, key])
+    }
+    return JSON.stringify(value)
+  }
+
+  private resolve(kind: string, id: string): Promise<unknown> {
+    const key = `${kind}:${id}`
+    const cached = this.cache.get(key)
+    if (cached) {
+      return cached
+    }
+    const resolver = this.options.resolve?.[kind]
+    if (!resolver) {
+      this.diagnostics.push({ code: "no-resolver", message: `no resolver for "${kind}"` })
+      return Promise.resolve(undefined)
+    }
+    const ctx = { signal: this.options.signal }
+    let promise: Promise<unknown>
+    if (typeof resolver === "function") {
+      promise = Promise.resolve().then(() => resolver(id, ctx))
+    } else {
+      promise = new Promise<unknown>((resolve) => this.enqueue(kind, id, resolver.many, resolve))
+    }
+    promise = promise.catch((error: unknown) => {
+      if (this.options.onError !== "fallback") {
+        throw error
+      }
+      this.diagnostics.push({ code: "resolve-failed", message: `${key}: ${String(error)}` })
+      return undefined
+    })
+    this.cache.set(key, promise)
+    return promise
+  }
+
+  private enqueue(
+    kind: string,
+    id: string,
+    many: (ids: string[], ctx: ResolverContext) => Promise<Map<string, unknown> | unknown[]>,
+    settle: (v: Promise<unknown>) => void,
+  ) {
+    let batch = this.batches.get(kind)
+    if (!batch) {
+      batch = new Map()
+      this.batches.set(kind, batch)
+      // everything requested in this tick goes out as one call
+      queueMicrotask(() => {
+        this.batches.delete(kind)
+        const ids = [...batch!.keys()]
+        const result = Promise.resolve().then(() => many(ids, { signal: this.options.signal }))
+        ids.forEach((batchId, i) =>
+          batch!.get(batchId)!(result.then((r) => (r instanceof Map ? r.get(batchId) : r[i]))),
+        )
+      })
+    }
+    batch.set(id, settle)
+  }
+}
+
+function join(parts: string[]): string {
+  return parts.filter((p) => p.trim()).join("\n\n")
+}
+
+const fallbackCompiler: NodeCompiler = async (node, ctx) =>
+  node.content ? ctx.children() : typeof node.attrs.label === "string" ? node.attrs.label : ""
+
+function indent(text: string, first: string): string {
+  const pad = " ".repeat(first.length)
+  return text
+    .split("\n")
+    .map((l, i) => (i === 0 ? first + l : l ? pad + l : l))
+    .join("\n")
+}
+
+function applyMarks(node: HeraldNode, mode: CompileMode): string {
+  let text = node.text ?? ""
+  if (mode === "plain") {
+    const link = node.marks?.find((m) => m.type === "link")
+    return link ? `${text} (${link.attrs?.href})` : text
+  }
+  for (const mark of [...(node.marks ?? [])].reverse()) {
+    if (mark.type === "code") {
+      text = `\`${text}\``
+    } else if (mark.type === "bold") {
+      text = `**${text}**`
+    } else if (mark.type === "italic") {
+      text = `*${text}*`
+    } else if (mark.type === "strike") {
+      text = `~~${text}~~`
+    } else if (mark.type === "link") {
+      text = `[${text}](${mark.attrs?.href})`
+    }
+  }
+  return text
+}
+
+const listItems = async (ctx: CompileContext, marker: (i: number) => string) =>
+  (await ctx.childList()).map((item, i) => indent(item, marker(i))).join("\n")
+
+// Built-in compilers. A plugin's NodeDef.compile or CompileOptions.override wins over these.
+const NATIVE: Record<string, NodeCompiler<any>> = {
+  doc: (_n, ctx) => ctx.children(),
+  // trimmed so a node that compiles to nothing (a hoisted command chip) doesn't leave a stray space
+  paragraph: async (_n, ctx) => (await ctx.children()).trim(),
+  text: (node, ctx) => applyMarks(node, ctx.mode),
+  hardBreak: () => "\n",
+  heading: async (node, ctx) => {
+    const text = await ctx.children()
+    return ctx.mode === "markdown" ? `${"#".repeat(Number(node.attrs.level) || 1)} ${text}` : text
+  },
+  listItem: (_n, ctx) => ctx.children(),
+  bulletList: (_n, ctx) => listItems(ctx, () => "- "),
+  orderedList: (node, ctx) => listItems(ctx, (i) => `${Number(node.attrs.start ?? 1) + i}. `),
+  blockquote: async (_n, ctx) =>
+    (await ctx.children())
+      .split("\n")
+      .map((l) => (ctx.mode === "markdown" ? `> ${l}` : l))
+      .join("\n"),
+  codeBlock: (node) => {
+    const code = (node.content ?? []).map((c) => c.text ?? "").join("")
+    return "```" + (node.attrs.language ?? "") + "\n" + code + "\n```"
+  },
+  horizontalRule: (_n, ctx) => (ctx.mode === "markdown" ? "---" : ""),
+}
