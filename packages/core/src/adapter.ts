@@ -1,3 +1,4 @@
+import type { Schema } from "./schema"
 import type { HeraldDoc, HeraldNode, Range } from "./types"
 
 /** An active trigger: the user typed `@` or `/` and is typing a query after it. */
@@ -18,9 +19,26 @@ export interface SelectionState {
   marks: string[]
 }
 
-export interface BlockView {
-  update(node: HeraldNode): void
+/** A UI-drawn atom (a chip, a block) inside the editor. */
+export interface AtomView {
+  /** New attrs, or the editor flipped between editable and read-only. */
+  update(node: HeraldNode, editable: boolean): void
   destroy(): void
+}
+
+/** Finds a trigger the cursor is in, given the textblock's text before the cursor. */
+export function findTrigger(before: string, triggers: string[]): { trigger: string; at: number; query: string } | null {
+  for (const t of [...triggers].sort((a, b) => b.length - a.length)) {
+    const at = before.lastIndexOf(t)
+    if (at < 0 || (at > 0 && !/[\s(]/.test(before[at - 1]!))) {
+      continue
+    }
+    const query = before.slice(at + t.length)
+    if (/^[\p{L}\p{N}_.-]*$/u.test(query)) {
+      return { trigger: t, at, query }
+    }
+  }
+  return null
 }
 
 /**
@@ -53,6 +71,15 @@ export const EditorPart = {
   DragGhost: "drag-ghost",
   /** A table's lines while its markdown source is shown for editing. */
   Table: "table",
+  /** The document root of an adapter that renders rich DOM (ProseMirror). Give it the same class as DocView's root. */
+  Doc: "doc",
+  Comment: "comment",
+  /** The comment thread the caret is in. */
+  CommentActive: "comment-active",
+  /** The range a comment is being written about, before it's saved. */
+  CommentDraft: "comment-draft",
+  /** Stands in for an image while it uploads. */
+  ImagePlaceholder: "image-placeholder",
 } as const
 export type EditorPart = (typeof EditorPart)[keyof typeof EditorPart]
 
@@ -64,21 +91,33 @@ export interface AdapterHooks {
   classes?: EditorClasses
   /** Trigger strings to watch for, e.g. ["@", "/"]. */
   triggers: string[]
+  /** Starts read-only when false; `setEditable` flips it later. */
+  editable: boolean
+  /**
+   * Block types the UI layer draws and edits itself through `renderBlock`, e.g. a table grid. The adapter keeps them
+   * atomic: no editable content, and no markdown source shown when the cursor goes inside.
+   */
+  blockOverrides: string[]
   onChange(doc: HeraldDoc): void
   onTrigger(state: TriggerState | null): void
   onSelection(state: SelectionState): void
   /** Called before the editor handles a key. Return true to swallow it (menus use this for arrows and Enter). */
   onKeyDown(event: KeyboardEvent): boolean
-  /** Draws an inline atom (a mention chip) into `el`. Returns a cleanup function. */
-  renderInline(node: HeraldNode, el: HTMLElement): () => void
-  /** Draws a block atom (inputs, output shape) into `el`. Call `update` to write new attrs back. */
-  renderBlock(node: HeraldNode, el: HTMLElement, update: (node: HeraldNode) => void): BlockView
+  /** Draws an inline atom (a mention chip) into `el`. */
+  renderInline(node: HeraldNode, el: HTMLElement, editable: boolean): AtomView
+  /** Draws a block atom (inputs, an image, an overridden table) into `el`. Call `update` to write a new node back. */
+  renderBlock(node: HeraldNode, el: HTMLElement, update: (node: HeraldNode) => void, editable: boolean): AtomView
   /** Converts pasted clipboard data into nodes to insert, or null for the editor's own paste. */
   onPaste?(data: { getData(mime: string): string }): HeraldNode[] | null
 }
 
-/** One editor engine. CodeMirror ships first; a ProseMirror adapter implements the same interface. */
+/** One editor engine: CodeMirror over markdown text, or ProseMirror over the JSON. */
 export interface EditorAdapter {
+  /**
+   * Stored JSON in, the doc this engine edits out. CodeMirror normalizes to what markdown can hold; ProseMirror keeps
+   * the JSON as given, so TipTap docs come back unchanged.
+   */
+  parse(schema: Schema, value: unknown): HeraldDoc
   mount(el: HTMLElement, doc: HeraldDoc, hooks: AdapterHooks): void
   destroy(): void
   getDoc(): HeraldDoc
@@ -87,4 +126,6 @@ export interface EditorAdapter {
   insert(node: HeraldNode, range?: Range): void
   toggleMark(mark: string): void
   focus(): void
+  /** Read-only shows the same views with no caret, trigger menus or drag handles. Keeps the scroll position. */
+  setEditable(editable: boolean): void
 }

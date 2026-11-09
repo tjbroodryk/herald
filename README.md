@@ -14,12 +14,13 @@ Not published yet. To try it, clone the repo and run the playground (see Develop
 | `packages/markdown` | markdown codec, parser, serializer | core, `@lezer/markdown` |
 | `packages/paste` | paste plugins: `htmlPaste`, `markdownPaste`, `plainTextPaste` | core, markdown |
 | `packages/agent` | `agentInputs`, `outputShape`, `toolKind` | core |
-| `packages/codemirror` | the CodeMirror editor adapter | core, markdown, CodeMirror (peer) |
+| `packages/codemirror` | the CodeMirror editor adapter: markdown text, for prompts and chat | core, markdown, CodeMirror (peer) |
+| `packages/prosemirror` | the ProseMirror editor adapter: the JSON itself, for long rich documents | core, ProseMirror (peer) |
 | `packages/react` | headless hooks: `useEditor`, `usePromptEditor`, `useFields`, `useInspector`, `DocView` | core, markdown, agent, React (peer) |
 | `packages/ui` | the ready-styled look: `PromptEditor`, `Inspector`, `DocView` and `styles.css` | react |
 | `packages/shadcn` | the shadcn registry: the same components as Tailwind source you copy into your app | react |
 
-Only the editor adapter depends on an editor engine. Everything above it talks to the editor through `EditorAdapter`, so it works the same with the CodeMirror adapter or a future ProseMirror one.
+Only the editor adapter depends on an editor engine. Everything above it talks to the editor through `EditorAdapter`, so switching between `codemirror()` and `prosemirror()` changes nothing else.
 
 The doc is plain JSON in the same shape as ProseMirror/TipTap (`{ type, attrs, content, marks, text }`), so a server can read, query and compile it without an editor.
 
@@ -124,7 +125,7 @@ One departure from CommonMark: every newline inside a paragraph is a line break 
 
 ## Tables
 
-Markdown tables (GitHub's pipe syntax, with `:---:` alignment) are built in. In the JSON they have TipTap's shape (`table` > `tableRow` > `tableHeader`/`tableCell` > `paragraph`), so existing TipTap tables load as they are. Cells hold inline content, so mentions, code and bold work inside them.
+Markdown tables (GitHub's pipe syntax, with `:---:` alignment) are built in. In the JSON they have TipTap's shape (`table` > `tableRow` > `tableHeader`/`tableCell` > blocks), so existing TipTap tables load as they are. Mentions, code and bold work inside cells.
 
 ```md
 | Amount | Decision | Who |
@@ -135,7 +136,8 @@ Markdown tables (GitHub's pipe syntax, with `:---:` alignment) are built in. In 
 - In the editor a table shows rendered. Click into it (or arrow into it) and its markdown shows for editing; move out and it renders again.
 - `tables()` adds a "Table" entry to the `/` menu.
 - Tables compile to a markdown table, or in `CompileMode.Plain` to one line per row with cells separated by ` | `.
-- Markdown cells are one line, so normalize puts each cell on one line, makes the first row the header, pads rows to the widest one, and drops TipTap's colspan/rowspan/colwidth.
+- The JSON keeps whatever a cell holds (several paragraphs, a list) and TipTap's colspan/rowspan/colwidth. A markdown cell is one line, so markdown joins a cell's blocks with spaces and pads short rows only when it writes; a doc that never goes through markdown loses nothing.
+- To draw tables your own way (a grid that edits cells), override the table view: `useEditor({ views: { block: { table: Grid } } })`. `Grid` gets `{ node, editable, update(nextNode) }`. Both adapters then draw the table as an atom and never show its markdown; in the CodeMirror adapter `update` rewrites the table's source. `example/table-grid.tsx` edits each cell as markdown and writes the whole table back. Pass the same object to `DocView`'s `overrides` for the read-only view.
 
 ## Paste
 
@@ -228,6 +230,24 @@ const editor = useEditor({
 <DocView doc={message} schema={schema} /> // read-only rendering of a sent message, chips included
 ```
 
+### Rich documents
+
+```tsx
+import { prosemirror } from "@herald/prosemirror"
+
+const adapter = prosemirror({ onImageFile: async (file) => ({ src: await upload(file) }) })
+const editor = useEditor({ schema, adapter, content: tiptapJson })
+editor.setEditable(false) // read-only: same views, no caret or menus; views get `editable: false`
+```
+
+The ProseMirror adapter edits the JSON directly instead of markdown, so long documents stay fast and nothing is normalized away. A TipTap doc comes back exactly as it went in, including nodes and marks Herald doesn't model (colour, highlight, textAlign, sub/superscript, id attrs, task lists, custom sections). It builds its ProseMirror schema from the doc, so any node type, mark or attr it finds is kept.
+
+- **Images**: an `image` node (`{ src, alt, title, width? }`, `src` may be a data URL), `![alt](src "title")` in markdown. Pasted or dropped images go through `onImageFile`, with a placeholder until it resolves; without it they go in as data URLs. Override `views.block.image` to draw your own.
+- **Comments**: a `comment` mark whose attrs hold the whole thread (`{ commentId, resolved, replies }`). Comments can overlap, typing inside one extends it, and deleting its text drops it. `adapter.addComment(range, attrs)`, `updateComment(id, attrs)`, `removeComment(id)`, `commentsInDoc()`, and `setCommentDraft(range | null)` to highlight the words being commented on. The thread under the caret gets `classes["comment-active"]`. Compile and markdown never output comments, so an agent prompt built from the doc can't see them.
+- **Same look as DocView**: the editor root gets `classes.doc` (`herald-doc` by default), and marks and blocks render the same elements DocView does.
+
+`example/document.tsx` has a long document with all of these and a read-only toggle.
+
 `example/chat.tsx` has the whole thing, with `/` commands as a mention kind (`prefix: "/"`) that compile into a task line at the top of the prompt. Menus open upward when there's no room below.
 
 ## Known limits
@@ -235,7 +255,8 @@ const editor = useEditor({
 - Bold, italic and strike can't open next to punctuation inside a word in markdown (`a**-b**`), so that case doesn't survive a markdown round trip. Normal word-boundary formatting does.
 - Unknown marks are kept in JSON but dropped from markdown.
 - A `:::` directive inside a list item or blockquote isn't supported; put the list inside the directive.
-- Only the CodeMirror adapter exists. `EditorAdapter` in core is the interface a ProseMirror adapter would implement.
+- The ProseMirror adapter has no drag handles, no table editing commands (add a column, Tab between cells) and no placeholder text. Task items edit like any other container, without TipTap's checkbox behaviour.
+- In markdown, an image is one only on a line of its own; `![a](b)` inside text stays text.
 
 ## Developing
 

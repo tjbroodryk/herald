@@ -10,12 +10,13 @@ import {
   type HeraldEditor,
   type MenuState,
   type ToolbarState,
+  type Views,
 } from "@herald/react"
 import { views } from "./views"
 
 // The ready-styled look: plain CSS classes, themed with --herald-* variables in styles.css.
 
-export { FieldsBlock, JsonBlock, MentionChip, TablePreview, views } from "./views"
+export { FieldsBlock, ImageBlock, JsonBlock, MentionChip, TablePreview, views } from "./views"
 export { trigger, useDoc, useEditor, type HeraldEditor, type TriggerDef } from "@herald/react"
 
 export interface PromptEditorProps {
@@ -138,9 +139,9 @@ export function Inspector({ editor, compile, diagnose, className }: InspectorPro
   )
 }
 
-/** Read-only rendering of a doc, e.g. a sent chat message. */
-export function DocView({ doc, schema, className }: { doc: HeraldDoc; schema?: Schema; className?: string }) {
-  return <HeadlessDocView doc={doc} views={views} schema={schema} className={cx("herald-doc", className)} />
+/** Read-only rendering of a doc, e.g. a sent chat message. Pass the editor's `views` as `overrides` to match it. */
+export function DocView({ doc, schema, overrides, className }: { doc: HeraldDoc; schema?: Schema; overrides?: Views; className?: string }) {
+  return <HeadlessDocView doc={doc} views={views} overrides={overrides} schema={schema} className={cx("herald-doc", className)} />
 }
 
 const cx = (...parts: (string | undefined | false)[]) => parts.filter(Boolean).join(" ")

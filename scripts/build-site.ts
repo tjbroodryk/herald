@@ -4,7 +4,7 @@ import { $ } from "bun"
 
 await $`rm -rf site`
 const result = await Bun.build({
-  entrypoints: ["example/index.html", "example/chat.html", "example/shadcn.html"],
+  entrypoints: ["example/index.html", "example/chat.html", "example/document.html", "example/shadcn.html"],
   outdir: "site",
   minify: true,
   splitting: true,

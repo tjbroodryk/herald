@@ -149,7 +149,25 @@ export const heraldViews: ViewSet = {
     [AgentNodeType.Inputs]: FieldsBlock,
     [AgentNodeType.OutputShape]: FieldsBlock,
     [NodeType.Table]: TablePreview,
+    [NodeType.Image]: ImageBlock,
   },
+}
+
+/** An image node. In the ProseMirror editor a click selects it. */
+export function ImageBlock({ node }: BlockViewProps) {
+  const { src, alt, title, width } = node.attrs ?? {}
+  return (
+    <figure className="my-2 [.ProseMirror-selectednode_&_img]:ring-2 [.ProseMirror-selectednode_&_img]:ring-ring">
+      <img
+        src={typeof src === "string" ? src : undefined}
+        alt={typeof alt === "string" ? alt : ""}
+        title={typeof title === "string" ? title : undefined}
+        width={typeof width === "number" ? width : undefined}
+        draggable={false}
+        className="block h-auto max-w-full rounded-md"
+      />
+    </figure>
+  )
 }
 
 /** Typography for rendered docs (DocView, table previews): your theme's tokens via Tailwind's arbitrary variants. */
@@ -163,7 +181,9 @@ export const docViewClassName = cn(
   "[&_[data-herald-block]]:my-1.5 [&_[data-herald-block]]:border-l-[3px] [&_[data-herald-block]]:border-primary [&_[data-herald-block]]:pl-3",
   "[&_table]:my-1.5 [&_table]:w-full [&_table]:border-collapse [&_table]:overflow-hidden [&_table]:rounded-md",
   "[&_th]:border [&_th]:bg-muted [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium",
-  "[&_td]:border [&_td]:px-3 [&_td]:py-1.5 [&_td]:align-top",
+  "[&_td]:border [&_td]:px-3 [&_td]:py-1.5 [&_td]:align-top [&_th>p]:my-0 [&_td>p]:my-0",
+  // open comment threads; the thread itself is in the doc's JSON, not the DOM
+  "[&_[data-comment-resolved=false]]:bg-amber-200/40 [&_[data-comment-resolved=false]]:border-b-2 [&_[data-comment-resolved=false]]:border-amber-400/70",
 )
 
 /** A table drawn the way DocView draws it; clicking it in the editor shows its markdown for editing. */

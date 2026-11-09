@@ -159,7 +159,8 @@ describe("round-trip property", () => {
       content: align.map((a) => ({
         type,
         ...(a ? { attrs: { align: a } } : {}),
-        ...(rand() < 0.8 ? { content: [{ type: "paragraph", content: inline() }] } : {}),
+        // a line break in a cell has no markdown form; markdown writes it as a space
+        ...(rand() < 0.8 ? { content: [{ type: "paragraph", content: inline().filter((n) => n.type !== "hardBreak") }] } : {}),
       })),
     })
     return { type: "table", content: [row("tableHeader"), ...Array.from({ length: Math.floor(rand() * 3) }, () => row("tableCell"))] }
@@ -230,7 +231,7 @@ describe("tables", () => {
     expect(markdown.decode(markdown.encode(doc))).toEqual(doc)
   })
 
-  test("TipTap-shaped tables normalize to the markdown-able form", () => {
+  test("TipTap-shaped tables keep their blocks and attrs; markdown collapses them when it writes", () => {
     const tiptap: HeraldDoc = {
       type: "doc",
       content: [
@@ -249,14 +250,21 @@ describe("tables", () => {
       ],
     }
     const doc = normalize(tiptap)
-    expect(doc.content![0]).toEqual({
-      type: "table",
+    // only the empty paragraph goes, as it does anywhere else
+    expect(doc.content![0]!.content![0]).toEqual(tiptap.content![0]!.content![0]!)
+    expect(doc.content![0]!.content![1]!.content![0]).toEqual({ type: "tableCell" })
+    expect(markdown.encode(doc)).toBe("| a b |  |\n| --- | --- |\n|  | c |\n")
+    expect(markdown.decode(markdown.encode(doc))).toEqual({
+      type: "doc",
       content: [
-        { type: "tableRow", content: [{ type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "a b" }] }] }, { type: "tableHeader" }] },
-        { type: "tableRow", content: [{ type: "tableCell" }, { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "c" }] }] }] },
+        {
+          type: "table",
+          content: [
+            { type: "tableRow", content: [{ type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "a b" }] }] }, { type: "tableHeader" }] },
+            { type: "tableRow", content: [{ type: "tableCell" }, { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "c" }] }] }] },
+          ],
+        },
       ],
     })
-    expect(markdown.encode(doc)).toBe("| a b |  |\n| --- | --- |\n|  | c |\n")
-    expect(markdown.decode(markdown.encode(doc))).toEqual(doc)
   })
 })

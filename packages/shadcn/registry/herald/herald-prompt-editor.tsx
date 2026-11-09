@@ -3,7 +3,7 @@ import { createPortal } from "react-dom"
 import type { EditorClasses, HeraldDoc } from "@herald/core"
 import { usePromptEditor, type HeraldEditor, type MenuState, type ToolbarState } from "@herald/react"
 import { cn } from "@/lib/utils"
-import { heraldViews } from "@/registry/herald/herald-views"
+import { docViewClassName, heraldViews } from "@/registry/herald/herald-views"
 
 // The editor draws markdown as rich text. These are the classes it puts on each part; edit them like any other
 // Tailwind in this file. Lines get padding through the --herald-line-* variables because CodeMirror owns padding.
@@ -35,6 +35,12 @@ export const editorClasses: EditorClasses = {
   "drop-line": "pointer-events-none absolute right-3 left-5 z-10 h-0.5 rounded-full bg-primary",
   "drag-ghost": "pointer-events-none absolute right-3 left-5 rounded-sm bg-primary/10",
   table: "font-mono text-[0.85em]",
+  // the ProseMirror adapter draws rich DOM; its root looks like DocView
+  doc: cn(docViewClassName, "px-3 py-2 outline-none caret-primary"),
+  comment: "",
+  "comment-active": "bg-amber-300/60",
+  "comment-draft": "bg-amber-200/40 border-b-2 border-amber-400/70",
+  "image-placeholder": "my-2 h-24 animate-pulse rounded-md bg-muted",
 }
 
 export interface PromptEditorProps {

@@ -297,3 +297,63 @@ kbd {
 .hint {
   margin-top: var(--space-2);
 }
+
+/* document page */
+.doc-scroll {
+  max-height: 72vh;
+  overflow-y: auto;
+}
+
+.comment-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.comment-composer textarea,
+.grid-table textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}
+
+.comment-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-3) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.comment-list p {
+  margin: var(--space-1) 0;
+}
+
+.prompt-out {
+  white-space: pre-wrap;
+  font-size: 12px;
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.grid-table table {
+  border-collapse: collapse;
+  margin: var(--space-2) 0;
+}
+
+.grid-table th,
+.grid-table td {
+  border: 1px solid var(--edge);
+  padding: var(--space-1);
+  vertical-align: top;
+}
+
+.grid-table textarea {
+  width: 14em;
+  resize: vertical;
+}

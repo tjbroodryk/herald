@@ -28,8 +28,9 @@ export {
   type Resolver,
 } from "./compile"
 export { find, matches, replace, walk, type Selector } from "./traversal"
+export { blockStyle, markElement, safeHref, type ElementSpec } from "./render"
 export { normalize } from "./normalize"
-// used by @herald/markdown; not part of the documented API
-export { isInline, sameMark, sortMarks } from "./normalize"
+// used by @herald/markdown and @herald/prosemirror; not part of the documented API
+export { isInline, MARK_ORDER, sameMark, sortMarks } from "./normalize"
 export { assertDoc, HeraldParseError, json, type Codec } from "./codec"
 export { mentionKind, mentions, section, starterKit, tables, type MentionKindHandle } from "./plugins"

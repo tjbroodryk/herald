@@ -4,6 +4,7 @@ import { useState } from "react"
 const PAGES = [
   { href: "./", label: "prompt editor" },
   { href: "./chat.html", label: "chat input" },
+  { href: "./document.html", label: "document" },
   { href: "./shadcn.html", label: "shadcn" },
 ]
 

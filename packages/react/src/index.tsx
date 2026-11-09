@@ -47,15 +47,23 @@ export interface InlineViewProps {
   node: HeraldNode
   /** The mention kind, when the node is a mention. */
   kind?: MentionKind
+  /** False in a read-only editor and in DocView: drop edit affordances. */
+  editable: boolean
 }
 
 export interface BlockViewProps {
   node: HeraldNode
-  /** Writes a new version of the node back into the document. */
+  /** Writes a new version of the node back into the document. A no-op when not editable. */
   update(node: HeraldNode): void
+  /** False in a read-only editor and in DocView: drop edit affordances. */
+  editable: boolean
 }
 
-/** Per-editor overrides of how atoms render, by node type. */
+/**
+ * Per-editor overrides of how nodes render, by node type. A block override owns its node: the editor draws it as an
+ * atom and never shows its markdown, so e.g. `block: { table: MyGrid }` replaces table editing with the grid's own.
+ * Pass the same object to DocView's `overrides` to draw a doc the same way read-only.
+ */
 export interface Views {
   inline?: Record<string, ComponentType<InlineViewProps>>
   block?: Record<string, ComponentType<BlockViewProps>>
@@ -75,6 +83,8 @@ export interface UseEditorOptions {
   onChange?: (doc: HeraldDoc) => void
   triggers?: TriggerDef[]
   views?: Views
+  /** Default true. Flip it later with `editor.setEditable`. */
+  editable?: boolean
 }
 
 /** Owns the adapter and the current doc. Make one with `useEditor`, or construct it yourself outside React. */
@@ -85,6 +95,7 @@ export class HeraldEditor {
   readonly views: Views
   onChange?: (doc: HeraldDoc) => void
   private doc: HeraldDoc
+  private editableNow: boolean
   private listeners = new Set<() => void>()
 
   constructor(options: UseEditorOptions) {
@@ -93,8 +104,19 @@ export class HeraldEditor {
     this.triggers = options.triggers ?? [trigger("/", { items: "slash" })]
     this.views = options.views ?? {}
     this.onChange = options.onChange
+    this.editableNow = options.editable !== false
     const content = options.content ?? { type: NodeType.Doc }
-    this.doc = typeof content === "string" ? markdown.decode(content) : options.schema.parse(content)
+    this.doc = typeof content === "string" ? markdown.decode(content) : options.adapter.parse(options.schema, content)
+  }
+
+  get editable(): boolean {
+    return this.editableNow
+  }
+
+  /** Flips between editing and read-only without remounting, so scroll position and view state are kept. */
+  setEditable(editable: boolean) {
+    this.editableNow = editable
+    this.adapter.setEditable(editable)
   }
 
   getDoc = (): HeraldDoc => this.doc
@@ -183,6 +205,8 @@ export function usePromptEditor(
     const set = () => latest.current.views
     editor.adapter.mount(ref.current!, editor.getDoc(), {
       triggers: editor.triggers.map((t) => t.trigger),
+      editable: editor.editable,
+      blockOverrides: Object.keys(views.block ?? {}),
       classes: latest.current.classes,
       onChange: (doc) => editor.changed(doc),
       onTrigger: (t) => {
@@ -204,18 +228,20 @@ export function usePromptEditor(
         }
         return false
       },
-      renderInline: (node, target) => {
+      renderInline: (node, target, editable) => {
         const View = views.inline?.[node.type] ?? set().inline
         const root = createRoot(target)
-        root.render(<View node={node} kind={schema.mentionKinds.get(String(node.attrs?.kind))} />)
-        return () => unmountLater(root)
+        const render = (n: HeraldNode, e: boolean) =>
+          root.render(<View node={n} kind={schema.mentionKinds.get(String(n.attrs?.kind))} editable={e} />)
+        render(node, editable)
+        return { update: render, destroy: () => unmountLater(root) }
       },
       onPaste: (data) => schema.parsePaste(data),
-      renderBlock: (node, target, update) => {
+      renderBlock: (node, target, update, editable) => {
         const View = views.block?.[node.type] ?? set().blocks[node.type] ?? set().blocks.default
         const root = createRoot(target)
-        const render = (n: HeraldNode) => root.render(<View node={n} update={update} />)
-        render(node)
+        const render = (n: HeraldNode, e: boolean) => root.render(<View node={n} update={e ? update : noop} editable={e} />)
+        render(node, editable)
         return { update: render, destroy: () => unmountLater(root) }
       },
     })
@@ -231,7 +257,7 @@ export function usePromptEditor(
   })
 
   const toolbar: ToolbarState | null =
-    selection && !selection.empty && editor.schema.toolbar.length > 0
+    selection && !selection.empty && editor.editable && editor.schema.toolbar.length > 0
       ? {
           items: editor.schema.toolbar,
           marks: selection.marks,
@@ -242,6 +268,8 @@ export function usePromptEditor(
 
   return { ref, menu, toolbar }
 }
+
+const noop = () => {}
 
 // React warns when a root unmounts while CodeMirror is mid-update; defer it.
 function unmountLater(root: Root) {
@@ -355,7 +383,7 @@ export interface FieldsApi {
 }
 
 /** State for an editor of typed fields (the `inputs` and `outputShape` blocks), nested to any depth. */
-export function useFields({ node, update }: BlockViewProps): FieldsApi {
+export function useFields({ node, update }: Pick<BlockViewProps, "node" | "update">): FieldsApi {
   const incoming = (Array.isArray(node.attrs?.fields) ? node.attrs.fields : []) as unknown as Field[]
   // local copy so typing isn't reset while the change round-trips through the document
   const [fields, setFields] = useState(incoming)

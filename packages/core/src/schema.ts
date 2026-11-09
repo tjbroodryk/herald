@@ -128,8 +128,12 @@ export class Schema {
 
   /** Untrusted JSON in, a checked and normalized doc out. Throws HeraldParseError on bad attrs. */
   parse(value: unknown): HeraldDoc {
-    const doc = normalize(assertDoc(value))
-    const validated = structuredClone(doc)
+    return normalize(this.validate(normalize(assertDoc(value))))
+  }
+
+  /** Like `parse`, without normalizing: the JSON's own shape is kept. Attrs a validator doesn't know are kept too. */
+  validate(value: unknown): HeraldDoc {
+    const validated = structuredClone(assertDoc(value))
     walk(validated, (node) => {
       const def = this.nodes.get(node.type)
       if (def?.attrs) {
@@ -137,10 +141,10 @@ export class Schema {
         if ("error" in result) {
           throw new HeraldParseError(`invalid ${node.type} attrs: ${result.error}`, node.type)
         }
-        node.attrs = result.value
+        node.attrs = { ...node.attrs, ...result.value }
       }
     })
-    return normalize(validated)
+    return validated
   }
 
   compile(doc: HeraldDoc, options: CompileOptions = {}): Promise<CompileResult> {
