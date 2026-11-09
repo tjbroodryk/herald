@@ -314,4 +314,13 @@ const NATIVE: Record<string, NodeCompiler<any>> = {
   },
   tableHeader: (_n, ctx) => cellText(ctx),
   tableCell: (_n, ctx) => cellText(ctx),
+  // a data URL is megabytes of base64 a model can't read as text, so it compiles to its alt text
+  image: (node, ctx) => {
+    const alt = String(node.attrs.alt ?? "")
+    const src = String(node.attrs.src ?? "")
+    if (ctx.mode !== CompileMode.Markdown || src.startsWith("data:")) {
+      return alt
+    }
+    return node.attrs.title ? `![${alt}](${src} "${node.attrs.title}")` : `![${alt}](${src})`
+  },
 }

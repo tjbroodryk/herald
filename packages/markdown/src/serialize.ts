@@ -74,10 +74,20 @@ function block(node: HeraldNode, prev: HeraldNode | undefined): string {
     }
     case NodeType.HorizontalRule:
       return "---"
+    case NodeType.Image: {
+      // shortcut: `width` has no markdown form and is dropped here; the JSON keeps it.
+      const alt = String(node.attrs?.alt ?? "").replace(/[\\\[\]]/g, "\\$&")
+      const title = typeof node.attrs?.title === "string" && node.attrs.title ? ` "${node.attrs.title.replace(/["\\]/g, "\\$&")}"` : ""
+      return `![${alt}](${linkHref(String(node.attrs?.src ?? ""))}${title})`
+    }
     case NodeType.Table: {
-      const rows = content.map((row) => (row.content ?? []).map((cell) => inline(cell.content?.[0]?.content ?? [], true)))
-      const delimiters = (content[0]?.content ?? []).map((cell) => ALIGN_DELIMITERS[String(cell.attrs?.align)] ?? "---")
-      const line = (cells: string[]) => `| ${cells.join(" | ")} |`
+      // a markdown cell is one line: a cell's blocks are joined with spaces, and short rows are padded
+      const rows = content.map((row) => (row.content ?? []).map((cell) => inline(cellInline(cell), true)))
+      const width = Math.max(1, ...rows.map((r) => r.length))
+      const pad = (cells: string[]) => Array.from({ length: width }, (_, i) => cells[i] ?? "")
+      const header = content[0]?.content ?? []
+      const delimiters = pad([]).map((_, i) => ALIGN_DELIMITERS[String(header[i]?.attrs?.align)] ?? "---")
+      const line = (cells: string[]) => `| ${pad(cells).join(" | ")} |`
       return [line(rows[0] ?? []), line(delimiters), ...rows.slice(1).map(line)].join("\n")
     }
     default:
@@ -86,6 +96,21 @@ function block(node: HeraldNode, prev: HeraldNode | undefined): string {
       }
       return "```herald:" + node.type + "\n" + JSON.stringify(node.attrs ?? {}, null, 2) + "\n```"
   }
+}
+
+// a cell's inline content on one line: its blocks' inline runs, separated by spaces
+function cellInline(cell: HeraldNode): HeraldNode[] {
+  const lines: HeraldNode[][] = []
+  const visit = (n: HeraldNode) => {
+    if (n.content?.some(isInline)) {
+      lines.push(n.content.map((c) => (c.type === NodeType.HardBreak ? { type: NodeType.Text, text: " " } : c)))
+    } else {
+      n.content?.forEach(visit)
+    }
+  }
+  visit(cell)
+  const joined = lines.flatMap((line, i) => (i ? [{ type: NodeType.Text, text: " " }, ...line] : line))
+  return normalize({ type: NodeType.Paragraph, content: joined }).content ?? []
 }
 
 function prefix(text: string, first: string): string {

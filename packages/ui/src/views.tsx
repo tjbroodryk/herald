@@ -125,7 +125,24 @@ export const views: ViewSet = {
     [AgentNodeType.Inputs]: FieldsBlock,
     [AgentNodeType.OutputShape]: FieldsBlock,
     [NodeType.Table]: TablePreview,
+    [NodeType.Image]: ImageBlock,
   },
+}
+
+/** An image node. In the ProseMirror editor a click selects it, so Backspace or a drag acts on the image. */
+export function ImageBlock({ node }: BlockViewProps) {
+  const { src, alt, title, width } = node.attrs ?? {}
+  return (
+    <figure className="herald-image">
+      <img
+        src={typeof src === "string" ? src : undefined}
+        alt={typeof alt === "string" ? alt : ""}
+        title={typeof title === "string" ? title : undefined}
+        width={typeof width === "number" ? width : undefined}
+        draggable={false}
+      />
+    </figure>
+  )
 }
 
 /** A table drawn the way DocView draws it; clicking it in the editor shows its markdown for editing. */

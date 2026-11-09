@@ -42,7 +42,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for p in core markdown agent codemirror react; do
+          for p in core markdown agent codemirror prosemirror react; do
             (cd "packages/$p" && bun pm pack --destination ../../packs)
           done
           for t in packs/*.tgz; do

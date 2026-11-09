@@ -18,6 +18,8 @@ export const NodeType = {
   TableRow: "tableRow",
   TableHeader: "tableHeader",
   TableCell: "tableCell",
+  /** TipTap's image: attrs `{ src, alt, title, width? }`; `src` may be a data URL. Markdown `![alt](src "title")`. */
+  Image: "image",
 } as const
 export type NodeType = (typeof NodeType)[keyof typeof NodeType]
 
@@ -34,6 +36,27 @@ export const MarkType = {
   Code: "code",
 } as const
 export type MarkType = (typeof MarkType)[keyof typeof MarkType]
+
+/**
+ * A comment thread on a range of text, as cotera's TipTap `comment` mark stores it. Data, not presentation: compile
+ * and markdown never write it, so an agent prompt built from the doc can't see comments.
+ */
+export const COMMENT_MARK = "comment"
+
+export interface CommentReply {
+  id: string
+  authorId: string
+  authorName: string
+  body: string
+  /** ISO-8601. */
+  createdAt: string
+}
+
+export interface CommentAttrs {
+  commentId: string | null
+  resolved: boolean
+  replies: CommentReply[]
+}
 
 /** Codes of the diagnostics Herald reports itself. Plugins may report other codes. */
 export const DiagnosticCode = {

@@ -1,41 +1,67 @@
-import type { ReactNode } from "react"
-import { MarkType, NodeType, type HeraldDoc, type HeraldNode, type Schema } from "@herald/core"
-import type { ViewSet } from "./index"
+import { createElement, type CSSProperties, type ReactNode } from "react"
+import { blockStyle, markElement, NodeType, type HeraldDoc, type HeraldNode, type Schema } from "@herald/core"
+import type { Views, ViewSet } from "./index"
 
 export interface DocViewProps {
   doc: HeraldDoc
   /** The chip and block views to use, as for the editor. */
   views: ViewSet
+  /** The editor's per-type overrides (`useEditor({ views })`), e.g. a table grid. They get `editable: false`. */
+  overrides?: Views
   /** Gives mention chips their kind's colour and label. */
   schema?: Schema
   className?: string
 }
 
 /**
- * Read-only rendering of a doc, e.g. a sent chat message. No editor is created. Renders plain semantic HTML;
- * container nodes such as sections get `data-herald-block="<type>"` for styling.
+ * Read-only rendering of a doc, e.g. a sent chat message. No editor is created. Renders plain semantic HTML, the same
+ * elements a read-only ProseMirror editor draws; container nodes such as sections get `data-herald-block="<type>"`.
  */
-export function DocView({ doc, views, schema, className }: DocViewProps) {
-  return <div className={className}>{nodes(doc.content, views, schema)}</div>
+export function DocView({ doc, views, overrides, schema, className }: DocViewProps) {
+  return <div className={className}>{nodes(doc.content, { views, overrides, schema })}</div>
 }
 
-function nodes(content: HeraldNode[] | undefined, views: ViewSet, schema?: Schema): ReactNode {
-  return content?.map((n, i) => <Node key={i} node={n} views={views} schema={schema} />)
+interface Ctx {
+  views: ViewSet
+  overrides?: Views
+  schema?: Schema
 }
 
-const safeHref = (href: unknown) => (typeof href === "string" && /^(https?:|mailto:)/i.test(href) ? href : undefined)
+function nodes(content: HeraldNode[] | undefined, ctx: Ctx): ReactNode {
+  return content?.map((n, i) => <Node key={i} node={n} ctx={ctx} />)
+}
 
-function Node({ node, views, schema }: { node: HeraldNode; views: ViewSet; schema?: Schema }): ReactNode {
-  const children = nodes(node.content, views, schema)
+const noop = () => {}
+
+// kebab-case CSS from @herald/core to React's camelCase
+const css = (style: Record<string, string>): CSSProperties | undefined =>
+  Object.keys(style).length
+    ? Object.fromEntries(Object.entries(style).map(([k, v]) => [k.replace(/-(\w)/g, (_, c: string) => c.toUpperCase()), v]))
+    : undefined
+
+function Node({ node, ctx }: { node: HeraldNode; ctx: Ctx }): ReactNode {
+  const { views, overrides, schema } = ctx
+  const kind = schema?.mentionKinds.get(String(node.attrs?.kind))
+  const OwnInline = overrides?.inline?.[node.type]
+  if (OwnInline) {
+    return <OwnInline node={node} kind={kind} editable={false} />
+  }
+  const OwnBlock = overrides?.block?.[node.type]
+  if (OwnBlock) {
+    return <OwnBlock node={node} update={noop} editable={false} />
+  }
+  const children = nodes(node.content, ctx)
+  const style = css(blockStyle(node.attrs))
   const { inline: Chip } = views
   const Block = views.blocks[node.type] ?? views.blocks.default
   switch (node.type) {
     case NodeType.Paragraph:
-      return <p>{children}</p>
+      // an empty paragraph keeps its line, as it does in an editor
+      return <p style={style}>{node.content?.length ? children : <br />}</p>
     case NodeType.Heading: {
       const level = Math.min(6, Math.max(1, Number(node.attrs?.level) || 1))
       const H = `h${level}` as "h1"
-      return <H>{children}</H>
+      return <H style={style}>{children}</H>
     }
     case NodeType.BulletList:
       return <ul>{children}</ul>
@@ -58,65 +84,43 @@ function Node({ node, views, schema }: { node: HeraldNode; views: ViewSet; schem
     case NodeType.Text:
       return text(node)
     case NodeType.Mention:
-      return <Chip node={node} kind={schema?.mentionKinds.get(String(node.attrs?.kind))} />
-    case NodeType.Table: {
-      const [head, ...body] = node.content ?? []
+      return <Chip node={node} kind={kind} editable={false} />
+    case NodeType.Table:
+      // header cells are <th>; one <tbody>, as ProseMirror draws it
       return (
         <table>
-          {head && <thead>{nodes([head], views, schema)}</thead>}
-          {body.length > 0 && <tbody>{nodes(body, views, schema)}</tbody>}
+          <tbody>{children}</tbody>
         </table>
       )
-    }
     case NodeType.TableRow:
       return <tr>{children}</tr>
     case NodeType.TableHeader:
     case NodeType.TableCell: {
-      // a cell holds one paragraph; render its content without the <p>
       const Cell = node.type === NodeType.TableHeader ? "th" : "td"
       const align = node.attrs?.align
-      return (
-        <Cell style={typeof align === "string" ? { textAlign: align as "left" } : undefined}>
-          {nodes(node.content?.[0]?.content, views, schema)}
-        </Cell>
-      )
+      return <Cell style={typeof align === "string" ? { textAlign: align as "left" } : undefined}>{children}</Cell>
     }
     default:
       if (node.content) {
-        return <div data-herald-block={node.type}>{children}</div>
+        return (
+          <div data-herald-block={node.type} style={style}>
+            {children}
+          </div>
+        )
       }
-      return typeof node.attrs?.label === "string" ? <Chip node={node} /> : <Block node={node} update={() => {}} />
+      return typeof node.attrs?.label === "string" ? (
+        <Chip node={node} editable={false} />
+      ) : (
+        <Block node={node} update={noop} editable={false} />
+      )
   }
 }
 
 function text(node: HeraldNode): ReactNode {
   let out: ReactNode = node.text
   for (const mark of [...(node.marks ?? [])].reverse()) {
-    switch (mark.type) {
-      case MarkType.Bold:
-        out = <strong>{out}</strong>
-        break
-      case MarkType.Italic:
-        out = <em>{out}</em>
-        break
-      case MarkType.Strike:
-        out = <s>{out}</s>
-        break
-      case MarkType.Code:
-        out = <code>{out}</code>
-        break
-      case MarkType.Link: {
-        const href = safeHref(mark.attrs?.href)
-        out = href ? (
-          <a href={href} target="_blank" rel="noreferrer">
-            {out}
-          </a>
-        ) : (
-          out
-        )
-        break
-      }
-    }
+    const spec = markElement(mark)
+    out = createElement(spec.tag, { ...spec.attrs, style: css(spec.style) }, out)
   }
   return out
 }

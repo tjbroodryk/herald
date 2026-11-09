@@ -1,0 +1,37 @@
+{
+  "name": "@herald/prosemirror",
+  "version": "0.1.0",
+  "description": "ProseMirror editor adapter for Herald: rich documents edited as JSON, TipTap docs kept as-is.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tjbroodryk/herald.git",
+    "directory": "packages/prosemirror"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && NODE_ENV=production bun build src/index.ts --outdir dist --format esm --target browser --packages external --external '@herald/*' && tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@herald/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "prosemirror-commands": "^1",
+    "prosemirror-history": "^1",
+    "prosemirror-keymap": "^1",
+    "prosemirror-model": "^1",
+    "prosemirror-schema-list": "^1",
+    "prosemirror-state": "^1",
+    "prosemirror-transform": "^1",
+    "prosemirror-view": "^1"
+  }
+}

@@ -1,5 +1,5 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
-import { EditorState, Prec, RangeSet, StateField, type Extension, type Range as CMRange } from "@codemirror/state"
+import { Compartment, EditorState, Prec, RangeSet, StateField, type Extension, type Range as CMRange } from "@codemirror/state"
 import {
   Decoration,
   EditorView,
@@ -8,7 +8,19 @@ import {
   WidgetType,
   type DecorationSet,
 } from "@codemirror/view"
-import { MarkType, NodeType, type AdapterHooks, type BlockView, type EditorAdapter, type EditorPart, type HeraldDoc, type HeraldNode, type Range } from "@herald/core"
+import {
+  findTrigger,
+  MarkType,
+  NodeType,
+  type AdapterHooks,
+  type AtomView,
+  type EditorAdapter,
+  type EditorPart,
+  type HeraldDoc,
+  type HeraldNode,
+  type Range,
+  type Schema,
+} from "@herald/core"
 import { isInlineAtom, parseMarkdown, serializeMarkdown, serializeWithCursor, SpanKind, type ParseResult, type Span } from "@herald/markdown"
 import { dragBlocks, moveBlockCommand } from "./drag"
 
@@ -35,15 +47,37 @@ export class CodeMirrorAdapter implements EditorAdapter {
   })
 
   private cls: (key: EditorPart) => string = (key) => `herald-${key}`
+  private readonly editable = new Compartment()
+  private editableNow = true
 
   constructor(private readonly options: CodeMirrorOptions) {}
 
+  parse(schema: Schema, value: unknown): HeraldDoc {
+    return schema.parse(value)
+  }
+
+  // read-only: no caret, no edits, no drag handles
+  private editableExtensions(editable: boolean): Extension {
+    return [
+      EditorView.editable.of(editable),
+      EditorState.readOnly.of(!editable),
+      editable && this.options.draggable !== false ? dragBlocks(this.parsed, this.cls) : [],
+    ]
+  }
+
+  setEditable(editable: boolean): void {
+    this.editableNow = editable
+    this.view?.dispatch({ effects: this.editable.reconfigure(this.editableExtensions(editable)) })
+  }
+
   mount(el: HTMLElement, doc: HeraldDoc, hooks: AdapterHooks): void {
     this.cls = (key) => hooks.classes?.[key] ?? `herald-${key}`
+    this.editableNow = hooks.editable
     const parsed = this.parsed
     const decorations = StateField.define<{ decos: DecorationSet; atoms: RangeSet<Decoration> }>({
       create: (state) => this.decorate(state, hooks),
-      update: (value, tr) => (tr.docChanged || tr.selection ? this.decorate(tr.state, hooks) : value),
+      update: (value, tr) =>
+        tr.docChanged || tr.selection || tr.reconfigured ? this.decorate(tr.state, hooks) : value,
       provide: (f) => [
         EditorView.decorations.from(f, (v) => v.decos),
         EditorView.atomicRanges.of((view) => view.state.field(f).atoms),
@@ -85,7 +119,7 @@ export class CodeMirrorAdapter implements EditorAdapter {
               },
             }),
           ),
-          draggable ? dragBlocks(parsed, this.cls) : [],
+          this.editable.of(this.editableExtensions(hooks.editable)),
           keymap.of([
             { key: "Mod-b", run: markKey(MarkType.Bold) },
             { key: "Mod-i", run: markKey(MarkType.Italic) },
@@ -244,33 +278,25 @@ export class CodeMirrorAdapter implements EditorAdapter {
 
   private trigger(view: EditorView, triggers: string[]) {
     const sel = view.state.selection.main
-    if (!view.hasFocus || !sel.empty) {
+    if (!view.hasFocus || !sel.empty || !this.editableNow) {
       return null
     }
     const line = view.state.doc.lineAt(sel.head)
-    const before = line.text.slice(0, sel.head - line.from)
-    for (const t of [...triggers].sort((a, b) => b.length - a.length)) {
-      const at = before.lastIndexOf(t)
-      if (at < 0 || (at > 0 && !/[\s(]/.test(before[at - 1]!))) {
-        continue
-      }
-      const query = before.slice(at + t.length)
-      if (!/^[\p{L}\p{N}_.-]*$/u.test(query)) {
-        continue
-      }
-      const from = line.from + at
-      const coords = view.coordsAtPos(from)
-      if (!coords) {
-        return null
-      }
-      return {
-        trigger: t,
-        query,
-        range: { from, to: sel.head },
-        rect: { left: coords.left, top: coords.top, bottom: coords.bottom },
-      }
+    const found = findTrigger(line.text.slice(0, sel.head - line.from), triggers)
+    if (!found) {
+      return null
     }
-    return null
+    const from = line.from + found.at
+    const coords = view.coordsAtPos(from)
+    if (!coords) {
+      return null
+    }
+    return {
+      trigger: found.trigger,
+      query: found.query,
+      range: { from, to: sel.head },
+      rect: { left: coords.left, top: coords.top, bottom: coords.bottom },
+    }
   }
 
   private selection(view: EditorView) {
@@ -295,17 +321,32 @@ export class CodeMirrorAdapter implements EditorAdapter {
   private decorate(state: EditorState, hooks: AdapterHooks) {
     const { spans } = state.field(this.parsed)
     const sel = state.selection.ranges
-    const revealed = (r: Range) => sel.some((s) => s.from <= r.to && s.to >= r.from)
+    const editable = state.facet(EditorView.editable)
+    // read-only never shows markdown source; neither does a block the UI layer draws and edits itself
+    const revealed = (r: Range) => editable && sel.some((s) => s.from <= r.to && s.to >= r.from)
+    const owned = (s: Span) => s.kind === SpanKind.Preview && hooks.blockOverrides.includes(s.node.type)
     const decos: CMRange<Decoration>[] = []
     const atoms: CMRange<Decoration>[] = []
     // a rendered preview (a table) replaces its text, so nothing inside it gets decorated
-    const previews = spans.filter((s) => s.kind === SpanKind.Preview && !revealed(s.reveal))
+    const previews = spans.filter((s) => s.kind === SpanKind.Preview && (owned(s) || !revealed(s.reveal)))
     const covered = (s: Span) =>
       s.kind !== SpanKind.Preview && s.kind !== SpanKind.Block && previews.some((p) => s.from >= p.from && s.to <= p.to)
     for (const span of spans) {
-      if (!covered(span)) {
-        this.decorateSpan(state, span, hooks, revealed, decos, atoms)
+      if (covered(span)) {
+        continue
       }
+      if (owned(span)) {
+        // an atom like a herald:type block: drawn by the UI layer, written back through update()
+        const node = (span as Extract<Span, { kind: typeof SpanKind.Preview }>).node
+        const deco = Decoration.replace({
+          widget: new BlockWidget(node, hooks, editable, (dom, next) => this.replaceBlock(dom, next)),
+          block: true,
+        }).range(state.doc.lineAt(span.from).from, span.to)
+        decos.push(deco)
+        atoms.push(deco)
+        continue
+      }
+      this.decorateSpan(state, span, hooks, editable, revealed, decos, atoms)
     }
     return { decos: Decoration.set(decos, true), atoms: Decoration.set(atoms, true) }
   }
@@ -314,6 +355,7 @@ export class CodeMirrorAdapter implements EditorAdapter {
     state: EditorState,
     span: Span,
     hooks: AdapterHooks,
+    editable: boolean,
     revealed: (r: Range) => boolean,
     decos: CMRange<Decoration>[],
     atoms: CMRange<Decoration>[],
@@ -348,13 +390,13 @@ export class CodeMirrorAdapter implements EditorAdapter {
         if (span.block) {
           const from = doc.lineAt(span.from).from
           const deco = Decoration.replace({
-            widget: new BlockWidget(span.node, hooks, (dom, next) => this.replaceBlock(dom, next)),
+            widget: new BlockWidget(span.node, hooks, editable, (dom, next) => this.replaceBlock(dom, next)),
             block: true,
           }).range(from, span.to)
           decos.push(deco)
           atoms.push(deco)
         } else {
-          const deco = Decoration.replace({ widget: new ChipWidget(span.node, hooks) }).range(span.from, span.to)
+          const deco = Decoration.replace({ widget: new ChipWidget(span.node, hooks, editable) }).range(span.from, span.to)
           decos.push(deco)
           atoms.push(deco)
         }
@@ -364,7 +406,10 @@ export class CodeMirrorAdapter implements EditorAdapter {
         // not atomic: clicking or arrowing into it moves the cursor inside, which shows the source
         if (!revealed(span.reveal)) {
           decos.push(
-            Decoration.replace({ widget: new PreviewWidget(span.node, hooks), block: true }).range(
+            Decoration.replace({
+              widget: new PreviewWidget(span.node, hooks, editable, (dom, next) => this.replaceBlock(dom, next)),
+              block: true,
+            }).range(
               doc.lineAt(span.from).from,
               span.to,
             ),
@@ -378,7 +423,12 @@ export class CodeMirrorAdapter implements EditorAdapter {
     const pos = view.posAtDOM(dom)
     const span = view.state
       .field(this.parsed)
-      .spans.find((s) => s.kind === SpanKind.Atom && s.block && view.state.doc.lineAt(s.from).from <= pos && s.to >= pos)
+      .spans.find(
+        (s) =>
+          ((s.kind === SpanKind.Atom && s.block) || s.kind === SpanKind.Preview) &&
+          view.state.doc.lineAt(s.from).from <= pos &&
+          s.to >= pos,
+      )
     if (!span) {
       return
     }
@@ -389,109 +439,87 @@ export class CodeMirrorAdapter implements EditorAdapter {
   }
 }
 
-const cleanups = new WeakMap<HTMLElement, () => void>()
-const blockViews = new WeakMap<HTMLElement, { type: string; view: BlockView }>()
+const atomViews = new WeakMap<HTMLElement, { type: string; view: AtomView }>()
 
-class ChipWidget extends WidgetType {
+/** A node drawn by the UI layer. Keeps the same DOM (and React state, and input focus) while its attrs change. */
+abstract class AtomWidget extends WidgetType {
   constructor(
     readonly node: HeraldNode,
     readonly hooks: AdapterHooks,
+    readonly editable: boolean,
   ) {
     super()
   }
 
-  override eq(other: ChipWidget) {
-    return JSON.stringify(other.node) === JSON.stringify(this.node)
-  }
+  protected abstract render(el: HTMLElement): AtomView
 
-  toDOM() {
-    const el = document.createElement("span")
-    el.className = "herald-chip-host"
-    cleanups.set(el, this.hooks.renderInline(this.node, el))
+  protected host(tag: string, className: string): HTMLElement {
+    const el = document.createElement(tag)
+    el.className = className
+    atomViews.set(el, { type: this.node.type, view: this.render(el) })
     return el
   }
 
-  override destroy(dom: HTMLElement) {
-    cleanups.get(dom)?.()
-  }
-}
-
-class BlockWidget extends WidgetType {
-  constructor(
-    readonly node: HeraldNode,
-    readonly hooks: AdapterHooks,
-    readonly write: (dom: HTMLElement, next: HeraldNode) => void,
-  ) {
-    super()
+  override eq(other: AtomWidget) {
+    return other.editable === this.editable && JSON.stringify(other.node) === JSON.stringify(this.node)
   }
 
-  override eq(other: BlockWidget) {
-    return JSON.stringify(other.node) === JSON.stringify(this.node)
-  }
-
-  toDOM() {
-    const el = document.createElement("div")
-    el.className = "herald-block-host"
-    const view = this.hooks.renderBlock(this.node, el, (next) => this.write(el, next))
-    blockViews.set(el, { type: this.node.type, view })
-    return el
-  }
-
-  // keeps the same DOM (and React state, and input focus) while its attrs change
   override updateDOM(dom: HTMLElement) {
-    const existing = blockViews.get(dom)
+    const existing = atomViews.get(dom)
     if (!existing || existing.type !== this.node.type) {
       return false
     }
-    existing.view.update(this.node)
+    existing.view.update(this.node, this.editable)
     return true
+  }
+
+  override destroy(dom: HTMLElement) {
+    atomViews.get(dom)?.view.destroy()
+  }
+}
+
+class ChipWidget extends AtomWidget {
+  protected render(el: HTMLElement) {
+    return this.hooks.renderInline(this.node, el, this.editable)
+  }
+
+  toDOM() {
+    return this.host("span", "herald-chip-host")
+  }
+}
+
+class BlockWidget extends AtomWidget {
+  constructor(
+    node: HeraldNode,
+    hooks: AdapterHooks,
+    editable: boolean,
+    readonly write: (dom: HTMLElement, next: HeraldNode) => void,
+  ) {
+    super(node, hooks, editable)
+  }
+
+  protected render(el: HTMLElement) {
+    return this.hooks.renderBlock(this.node, el, (next) => this.write(el, next), this.editable)
+  }
+
+  toDOM() {
+    return this.host("div", "herald-block-host")
   }
 
   override ignoreEvent() {
     return true
   }
-
-  override destroy(dom: HTMLElement) {
-    blockViews.get(dom)?.view.destroy()
-  }
 }
 
-/** A read-only rendering of a block (a table) that gives way to its source when the cursor goes inside. */
-class PreviewWidget extends WidgetType {
-  constructor(
-    readonly node: HeraldNode,
-    readonly hooks: AdapterHooks,
-  ) {
-    super()
-  }
-
-  override eq(other: PreviewWidget) {
-    return JSON.stringify(other.node) === JSON.stringify(this.node)
-  }
-
-  toDOM() {
-    const el = document.createElement("div")
-    el.className = "herald-preview-host"
-    blockViews.set(el, { type: this.node.type, view: this.hooks.renderBlock(this.node, el, () => {}) })
-    return el
-  }
-
-  override updateDOM(dom: HTMLElement) {
-    const existing = blockViews.get(dom)
-    if (!existing || existing.type !== this.node.type) {
-      return false
-    }
-    existing.view.update(this.node)
-    return true
+/** A rendering of a block (a table, an image) that gives way to its source when the cursor goes inside. */
+class PreviewWidget extends BlockWidget {
+  override toDOM() {
+    return this.host("div", "herald-preview-host")
   }
 
   // let CodeMirror handle clicks, so a click places the cursor inside and reveals the source
   override ignoreEvent() {
     return false
-  }
-
-  override destroy(dom: HTMLElement) {
-    blockViews.get(dom)?.view.destroy()
   }
 }
 

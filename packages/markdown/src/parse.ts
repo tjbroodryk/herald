@@ -138,9 +138,12 @@ class Converter {
           })
       : []
     this.inTable = true
-    const rows = [...n.getChildren("TableHeader"), ...n.getChildren("TableRow")].map((row, r) => ({
+    const cellRows = [...n.getChildren("TableHeader"), ...n.getChildren("TableRow")].map((row) => this.tableCells(row))
+    // every row as wide as the widest, so short rows get empty cells
+    const width = Math.max(1, ...cellRows.map((r) => r.length))
+    const rows = cellRows.map((cells, r) => ({
       type: NodeType.TableRow,
-      content: this.tableCells(row).map((inline, i) => ({
+      content: Array.from({ length: width }, (_, i) => cells[i] ?? []).map((inline, i) => ({
         type: r === 0 ? NodeType.TableHeader : NodeType.TableCell,
         ...(aligns[i] ? { attrs: { align: aligns[i]! } } : {}),
         content: [{ type: NodeType.Paragraph, content: inline }],
@@ -210,8 +213,13 @@ class Converter {
       return { type: NodeType.Heading, attrs: { level }, content: this.inline(n, []) }
     }
     switch (n.name) {
-      case "Paragraph":
+      case "Paragraph": {
+        const only = n.firstChild
+        if (only?.name === "Image" && !only.nextSibling && this.slice(n.from, n.to).trim() === this.slice(only.from, only.to)) {
+          return this.image(n, only)
+        }
         return { type: NodeType.Paragraph, content: this.inline(n, []) }
+      }
       case "BulletList":
       case "OrderedList": {
         const items = this.blocks(n)
@@ -254,6 +262,26 @@ class Converter {
       default:
         return null
     }
+  }
+
+  // `![alt](src "title")` on a line of its own; shown rendered until the cursor goes inside, like a table
+  private image(block: SyntaxNode, n: SyntaxNode): HeraldNode {
+    const marks = n.getChildren("LinkMark")
+    const url = n.getChild("URL")
+    const title = n.getChild("LinkTitle")
+    let src = url ? this.slice(url.from, url.to) : ""
+    if (src.startsWith("<") && src.endsWith(">")) {
+      src = src.slice(1, -1)
+    }
+    const attrs: Attrs = {
+      src: unescape(src),
+      alt: marks.length >= 2 ? unescape(this.slice(marks[0]!.to, marks[1]!.from)) : "",
+      ...(title ? { title: unescape(this.slice(title.from + 1, title.to - 1)) } : {}),
+    }
+    const node: HeraldNode = { type: NodeType.Image, attrs }
+    const range = { from: block.from, to: block.to }
+    this.span({ kind: SpanKind.Preview, ...range, node, reveal: range })
+    return node
   }
 
   private hideChildrenDeep(n: SyntaxNode, name: string, reveal: Range) {
