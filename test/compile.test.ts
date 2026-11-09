@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { z } from "zod"
-import { createSchema, defineNode, find, HeraldParseError, mentions, replace, section, starterKit, type HeraldDoc } from "@herald/core"
+import { CompileMode, createSchema, defineNode, DiagnosticCode, find, HeraldParseError, mentions, replace, section, starterKit, type HeraldDoc } from "@herald/core"
 import { agentInputs, outputShape, toolKind } from "@herald/agent"
 import { markdown } from "@herald/markdown"
 
@@ -14,7 +14,9 @@ const mention = mentions({
     },
   },
 })
-const schema = createSchema([starterKit(), mention, section, agentInputs(), outputShape()])
+const inputs = agentInputs()
+const output = outputShape()
+const schema = createSchema([starterKit(), mention, section, inputs, output])
 const md = (s: string) => markdown.decode(s)
 
 describe("compile", () => {
@@ -48,7 +50,7 @@ describe("compile", () => {
     })
     expect(calls).toEqual([["a", "b", "zz"]])
     expect(out.prompt).toBe('<doc>A sees <doc>B</doc> and <doc>"A"</doc></doc> <doc>B</doc> <doc>A sees <doc>B</doc> and <doc>"A"</doc></doc> <doc>"Gone"</doc>')
-    expect(out.diagnostics.map((d) => d.code).sort()).toEqual(["cycle", "cycle", "missing-reference"])
+    expect(out.diagnostics.map((d) => d.code).sort()).toEqual([DiagnosticCode.Cycle, DiagnosticCode.Cycle, DiagnosticCode.MissingReference])
   })
 
   test("resolver errors reject by default, or fall back", async () => {
@@ -57,7 +59,7 @@ describe("compile", () => {
     await expect(schema.compile(doc, { resolve })).rejects.toThrow("db down")
     const out = await schema.compile(doc, { resolve, onError: "fallback" })
     expect(out.prompt).toBe('<doc>"A"</doc>')
-    expect(out.diagnostics.map((d) => d.code)).toEqual(["resolve-failed", "missing-reference"])
+    expect(out.diagnostics.map((d) => d.code)).toEqual([DiagnosticCode.ResolveFailed, DiagnosticCode.MissingReference])
   })
 
   test("abort signal stops compiling", async () => {
@@ -78,15 +80,15 @@ describe("compile", () => {
     const out = await schema.compile(doc)
     expect(out.prompt.startsWith("You are given these inputs as JSON:\n- `q` (string): the question\n\nAnswer `q` (input).")).toBe(true)
     expect(out.prompt).toContain("Return the following JSON structure:")
-    expect(outputShape.jsonSchema(doc)).toEqual({
+    expect(output.jsonSchema(doc)).toEqual({
       type: "object",
       properties: { answer: { type: "string" } },
       required: ["answer"],
       additionalProperties: false,
     })
-    expect(agentInputs.validate(doc, {})).toEqual(["q is required"])
-    expect(agentInputs.validate(doc, { q: 1 })).toEqual(["q should be string, got number"])
-    expect(agentInputs.validate(doc, { q: "why" })).toEqual([])
+    expect(inputs.validate(doc, {})).toEqual(["q is required"])
+    expect(inputs.validate(doc, { q: 1 })).toEqual(["q should be string, got number"])
+    expect(inputs.validate(doc, { q: "why" })).toEqual([])
   })
 })
 
@@ -103,7 +105,12 @@ describe("traversal and diagnostics", () => {
   test("diagnose", () => {
     const doc = md("@[X](tool:x) @[q](input:q) @[?](widget:w)\n\n:::mystery\nhi\n:::\n")
     const codes = schema.diagnose(doc, { tools: ["search"] }).map((d) => d.code)
-    expect(codes).toEqual(["invalid-tool", "unknown-mention-kind", "unknown-node", "undeclared-input"])
+    expect(codes).toEqual([
+      DiagnosticCode.InvalidMention,
+      DiagnosticCode.UnknownMentionKind,
+      DiagnosticCode.UnknownNode,
+      DiagnosticCode.UndeclaredInput,
+    ])
   })
 
   test("parse validates attrs with Standard Schema and keeps unknown nodes", () => {
@@ -130,5 +137,88 @@ describe("traversal and diagnostics", () => {
       ],
     }
     expect(schema.parse(tiptap)).toEqual({ type: "doc", content: [tiptap.content[0]!] } as HeraldDoc)
+  })
+})
+
+describe("nested fields", () => {
+  const fields = [
+    {
+      name: "customer",
+      type: "object",
+      description: "who asked",
+      fields: [
+        { name: "id", type: "string" },
+        { name: "address", type: "object", fields: [{ name: "city", type: "string" }] },
+      ],
+    },
+    { name: "tags", type: "array", items: { type: "string" }, required: false },
+    { name: "orders", type: "array", items: { type: "object", fields: [{ name: "sku", type: "string" }] } },
+  ]
+  const doc = md("```herald:inputs\n" + JSON.stringify({ fields }) + "\n```\n\n```herald:outputShape\n" + JSON.stringify({ fields }) + "\n```\n")
+
+  test("JSON Schema nests objects and array items", () => {
+    expect(output.jsonSchema(doc)).toEqual({
+      type: "object",
+      properties: {
+        customer: {
+          type: "object",
+          description: "who asked",
+          properties: {
+            id: { type: "string" },
+            address: {
+              type: "object",
+              properties: { city: { type: "string" } },
+              required: ["city"],
+              additionalProperties: false,
+            },
+          },
+          required: ["id", "address"],
+          additionalProperties: false,
+        },
+        tags: { type: "array", items: { type: "string" } },
+        orders: {
+          type: "array",
+          items: { type: "object", properties: { sku: { type: "string" } }, required: ["sku"], additionalProperties: false },
+        },
+      },
+      required: ["customer", "orders"],
+      additionalProperties: false,
+    })
+  })
+
+  test("validate reports nested paths", () => {
+    expect(
+      inputs.validate(doc, {
+        customer: { id: "c1", address: {} },
+        tags: ["a", 2],
+        orders: [{ sku: "x" }, { sku: 3 }],
+      }),
+    ).toEqual(["customer.address.city is required", "tags[1] should be string, got number", "orders[1].sku should be string, got number"])
+    expect(inputs.validate(doc, { customer: { id: "c1", address: { city: "Cape Town" } }, orders: [] })).toEqual([])
+  })
+
+  test("the prompt lists nested inputs indented", async () => {
+    const out = await schema.compile(doc)
+    expect(out.prompt.split("\n\n")[0]).toBe(
+      [
+        "You are given these inputs as JSON:",
+        "- `customer` (object): who asked",
+        "  - `id` (string)",
+        "  - `address` (object)",
+        "    - `city` (string)",
+        "- `tags` (array of string, optional)",
+        "- `orders` (array of object)",
+        "  - `sku` (string)",
+      ].join("\n"),
+    )
+  })
+})
+
+describe("tables", () => {
+  const doc = md("| Tool | Use |\n| :--- | --- |\n| @[CRM](tool:crm) | look up **accounts** |\n")
+  test("compile to a markdown table, or rows of cells in plain mode", async () => {
+    const out = await schema.compile(doc)
+    expect(out.prompt).toBe("| Tool | Use |\n| :--- | --- |\n| `crm` (tool) | look up **accounts** |\n\nAvailable tools: `crm`")
+    expect((await schema.compile(doc, { mode: CompileMode.Plain })).prompt.split("\n\n")[0]).toBe("Tool | Use\n`crm` (tool) | look up accounts")
   })
 })

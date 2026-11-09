@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { createSchema, mentions, starterKit, type HeraldDoc, type SuggestionItem } from "@herald/core"
+import { htmlPaste } from "@herald/paste"
 import { codemirror } from "@herald/codemirror"
 import { DocView, PromptEditor, trigger, useDoc, useEditor } from "@herald/ui"
 import "@herald/ui/styles.css"
@@ -33,7 +34,8 @@ const commandItems = (q: string): SuggestionItem[] =>
     .filter(([id]) => id.includes(q.toLowerCase()))
     .map(([id, c]) => command.command.item({ id, label: c.label }, c.instruction.slice(0, 28) + "…"))
 
-const schema = createSchema([starterKit(), mention, command])
+// chat pastes rich text as formatting, anything else as typed
+const schema = createSchema([starterKit(), mention, command, htmlPaste()])
 
 type Message =
   | { id: string; role: "user"; doc: HeraldDoc }

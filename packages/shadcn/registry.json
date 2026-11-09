@@ -1,0 +1,65 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "name": "herald",
+  "homepage": "https://tjbroodryk.github.io/herald",
+  "items": [
+    {
+      "name": "herald-prompt-editor",
+      "type": "registry:component",
+      "title": "Herald prompt editor",
+      "description": "Rich prompt editor with @ mentions, / commands, typed inputs and output shapes, drag to reorder.",
+      "dependencies": [
+        "@herald/core",
+        "@herald/react",
+        "@herald/codemirror",
+        "@herald/markdown",
+        "@herald/agent",
+        "@codemirror/state",
+        "@codemirror/view",
+        "@codemirror/commands"
+      ],
+      "registryDependencies": ["utils"],
+      "cssVars": {
+        "light": {
+          "herald-color-tool": "var(--chart-1)",
+          "herald-color-input": "var(--chart-2)",
+          "herald-color-user": "var(--chart-3)",
+          "herald-color-document": "var(--chart-4)",
+          "herald-color-command": "var(--chart-5)"
+        },
+        "dark": {
+          "herald-color-tool": "var(--chart-1)",
+          "herald-color-input": "var(--chart-2)",
+          "herald-color-user": "var(--chart-3)",
+          "herald-color-document": "var(--chart-4)",
+          "herald-color-command": "var(--chart-5)"
+        }
+      },
+      "files": [
+        { "path": "registry/herald/herald-views.tsx", "type": "registry:component" },
+        { "path": "registry/herald/herald-prompt-editor.tsx", "type": "registry:component" }
+      ]
+    },
+    {
+      "name": "herald-inspector",
+      "type": "registry:component",
+      "title": "Herald inspector",
+      "description": "Shows what a Herald editor produces: compiled prompt, JSON, markdown, collected values, diagnostics.",
+      "dependencies": ["@herald/core", "@herald/react"],
+      "registryDependencies": ["utils"],
+      "files": [{ "path": "registry/herald/herald-inspector.tsx", "type": "registry:component" }]
+    },
+    {
+      "name": "herald-doc-view",
+      "type": "registry:component",
+      "title": "Herald doc view",
+      "description": "Read-only rendering of a Herald doc, e.g. a sent chat message.",
+      "dependencies": ["@herald/core", "@herald/react", "@herald/agent"],
+      "registryDependencies": ["utils"],
+      "files": [
+        { "path": "registry/herald/herald-views.tsx", "type": "registry:component" },
+        { "path": "registry/herald/herald-doc-view.tsx", "type": "registry:component" }
+      ]
+    }
+  ]
+}

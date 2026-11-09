@@ -8,23 +8,24 @@ import {
   type RefObject,
 } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import type {
-  CompileOptions,
-  CompileResult,
-  DiagnoseOptions,
-  Diagnostic,
-  EditorAdapter,
-  EditorClasses,
-  HeraldDoc,
-  HeraldNode,
-  MentionKind,
-  Schema,
-  SelectionState,
-  SuggestionItem,
-  ToolbarItem,
-  TriggerState,
+import {
+  NodeType,
+  type CompileOptions,
+  type CompileResult,
+  type DiagnoseOptions,
+  type Diagnostic,
+  type EditorAdapter,
+  type EditorClasses,
+  type HeraldDoc,
+  type HeraldNode,
+  type MentionKind,
+  type Schema,
+  type SelectionState,
+  type SuggestionItem,
+  type ToolbarItem,
+  type TriggerState,
 } from "@herald/core"
-import { FIELD_TYPES, type Field, type FieldType } from "@herald/agent"
+import { FIELD_TYPES, FieldType, type Field, type FieldShape } from "@herald/agent"
 import { markdown } from "@herald/markdown"
 
 // Headless: state and behaviour for building a Herald editor UI, no markup and no styles.
@@ -92,7 +93,7 @@ export class HeraldEditor {
     this.triggers = options.triggers ?? [trigger("/", { items: "slash" })]
     this.views = options.views ?? {}
     this.onChange = options.onChange
-    const content = options.content ?? { type: "doc" }
+    const content = options.content ?? { type: NodeType.Doc }
     this.doc = typeof content === "string" ? markdown.decode(content) : options.schema.parse(content)
   }
 
@@ -126,6 +127,10 @@ export function useDoc(editor: HeraldEditor): HeraldDoc {
   return useSyncExternalStore(editor.subscribe, editor.getDoc)
 }
 
+/** Which side of the trigger a menu opens on. */
+export const MenuPlacement = { Top: "top", Bottom: "bottom" } as const
+export type MenuPlacement = (typeof MenuPlacement)[keyof typeof MenuPlacement]
+
 /** An open `@` or `/` menu. Render `items` in an element with `style` (fixed next to the trigger), portaled to body. */
 export interface MenuState {
   trigger: string
@@ -133,7 +138,7 @@ export interface MenuState {
   items: SuggestionItem[]
   active: number
   loading: boolean
-  placement: "top" | "bottom"
+  placement: MenuPlacement
   style: CSSProperties
   kinds: Map<string, MentionKind>
   setActive(index: number): void
@@ -205,6 +210,7 @@ export function usePromptEditor(
         root.render(<View node={node} kind={schema.mentionKinds.get(String(node.attrs?.kind))} />)
         return () => unmountLater(root)
       },
+      onPaste: (data) => schema.parsePaste(data),
       renderBlock: (node, target, update) => {
         const View = views.block?.[node.type] ?? set().blocks[node.type] ?? set().blocks.default
         const root = createRoot(target)
@@ -321,7 +327,7 @@ function useMenu(
     items,
     active,
     loading,
-    placement: above ? "top" : "bottom",
+    placement: above ? MenuPlacement.Top : MenuPlacement.Bottom,
     style: above
       ? { position: "fixed", left: trig.rect.left, bottom: window.innerHeight - trig.rect.top + 4 }
       : { position: "fixed", left: trig.rect.left, top: trig.rect.bottom + 4 },
@@ -332,28 +338,87 @@ function useMenu(
 }
 
 /** State for an editor of typed fields (the `inputs` and `outputShape` blocks). */
-export function useFields({ node, update }: BlockViewProps) {
+/**
+ * Where a field sits in the tree: indexes into `fields`, with "items" stepping into an array's item shape.
+ * `[2, "items", 0]` is the first field of the objects in the third field's array.
+ */
+export type FieldPath = (number | "items")[]
+
+export interface FieldsApi {
+  fields: Field[]
+  types: FieldType[]
+  /** Changes a field or an array's item shape. Switching type adds or drops `fields`/`items` to match. */
+  patch(path: FieldPath, change: Partial<Field>): void
+  /** Adds a field to the object at `path` (`[]` for the top level). */
+  add(path: FieldPath): void
+  remove(path: FieldPath): void
+}
+
+/** State for an editor of typed fields (the `inputs` and `outputShape` blocks), nested to any depth. */
+export function useFields({ node, update }: BlockViewProps): FieldsApi {
   const incoming = (Array.isArray(node.attrs?.fields) ? node.attrs.fields : []) as unknown as Field[]
   // local copy so typing isn't reset while the change round-trips through the document
   const [fields, setFields] = useState(incoming)
   const key = JSON.stringify(incoming)
   useEffect(() => setFields(incoming), [key])
 
-  const write = (next: Field[]) => {
+  const edit = (path: FieldPath, fn: (shape: FieldShape) => FieldShape) => {
+    const next = (updateAt({ type: FieldType.Object, fields }, path, fn).fields ?? []) as Field[]
     setFields(next)
     update({ ...node, attrs: { ...node.attrs, fields: next as never } })
   }
   return {
     fields,
     types: FIELD_TYPES,
-    patch: (i: number, change: Partial<Field>) => write(fields.map((f, j) => (j === i ? { ...f, ...change } : f))),
-    add: () => write([...fields, { name: `field_${fields.length + 1}`, type: "string" as FieldType }]),
-    remove: (i: number) => write(fields.filter((_, j) => j !== i)),
+    patch: (path, change) => edit(path, (shape) => withType({ ...shape, ...change })),
+    add: (path) =>
+      edit(path, (shape) => {
+        const list = shape.fields ?? []
+        return { ...shape, fields: [...list, { name: `field_${list.length + 1}`, type: FieldType.String }] }
+      }),
+    remove: (path) => {
+      const index = path.at(-1) as number
+      edit(path.slice(0, -1), (shape) => ({ ...shape, fields: (shape.fields ?? []).filter((_, i) => i !== index) }))
+    },
   }
 }
 
-export const INSPECTOR_TABS = ["prompt", "json", "markdown", "collected", "diagnostics"] as const
-export type InspectorTab = (typeof INSPECTOR_TABS)[number]
+function updateAt(shape: FieldShape, path: FieldPath, fn: (shape: FieldShape) => FieldShape): FieldShape {
+  const [head, ...rest] = path
+  if (head === undefined) {
+    return fn(shape)
+  }
+  if (head === "items") {
+    return { ...shape, items: updateAt(shape.items ?? { type: FieldType.String }, rest, fn) }
+  }
+  return {
+    ...shape,
+    fields: (shape.fields ?? []).map((f, i) => (i === head ? (updateAt(f, rest, fn) as Field) : f)),
+  }
+}
+
+// keep children consistent with the type: objects have fields, arrays have an item shape, scalars have neither
+function withType<S extends FieldShape>(shape: S): S {
+  const { fields, items, ...rest } = shape
+  if (shape.type === FieldType.Object) {
+    return { ...rest, fields: fields ?? [] } as S
+  }
+  if (shape.type === FieldType.Array) {
+    return { ...rest, items: items ?? { type: FieldType.String } } as S
+  }
+  return rest as S
+}
+
+export const InspectorTab = {
+  Prompt: "prompt",
+  Json: "json",
+  Markdown: "markdown",
+  Collected: "collected",
+  Diagnostics: "diagnostics",
+} as const
+export type InspectorTab = (typeof InspectorTab)[keyof typeof InspectorTab]
+/** The tabs in display order. */
+export const INSPECTOR_TABS: InspectorTab[] = Object.values(InspectorTab)
 
 /**
  * What the editor produces: compiled prompt, JSON, markdown, collected values and diagnostics, as text per tab.
@@ -378,15 +443,15 @@ export function useInspector(editor: HeraldEditor, options: { compile?: CompileO
   ]
   const text = (tab: InspectorTab): string => {
     switch (tab) {
-      case "prompt":
+      case InspectorTab.Prompt:
         return result ? ("error" in result ? result.error : result.prompt) : "compiling…"
-      case "json":
+      case InspectorTab.Json:
         return JSON.stringify(doc, null, 2)
-      case "markdown":
+      case InspectorTab.Markdown:
         return markdown.encode(doc)
-      case "collected":
+      case InspectorTab.Collected:
         return result && "collected" in result ? JSON.stringify(result.collected, null, 2) : ""
-      case "diagnostics":
+      case InspectorTab.Diagnostics:
         return diagnostics.length ? diagnostics.map((d) => `${d.code}  ${d.message}`).join("\n") : "no problems"
     }
   }

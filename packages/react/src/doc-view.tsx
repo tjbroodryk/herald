@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import type { HeraldDoc, HeraldNode, Schema } from "@herald/core"
+import { MarkType, NodeType, type HeraldDoc, type HeraldNode, type Schema } from "@herald/core"
 import type { ViewSet } from "./index"
 
 export interface DocViewProps {
@@ -30,35 +30,57 @@ function Node({ node, views, schema }: { node: HeraldNode; views: ViewSet; schem
   const { inline: Chip } = views
   const Block = views.blocks[node.type] ?? views.blocks.default
   switch (node.type) {
-    case "paragraph":
+    case NodeType.Paragraph:
       return <p>{children}</p>
-    case "heading": {
+    case NodeType.Heading: {
       const level = Math.min(6, Math.max(1, Number(node.attrs?.level) || 1))
       const H = `h${level}` as "h1"
       return <H>{children}</H>
     }
-    case "bulletList":
+    case NodeType.BulletList:
       return <ul>{children}</ul>
-    case "orderedList":
+    case NodeType.OrderedList:
       return <ol start={Number(node.attrs?.start ?? 1)}>{children}</ol>
-    case "listItem":
+    case NodeType.ListItem:
       return <li>{children}</li>
-    case "blockquote":
+    case NodeType.Blockquote:
       return <blockquote>{children}</blockquote>
-    case "codeBlock":
+    case NodeType.CodeBlock:
       return (
         <pre>
           <code>{node.content?.map((c) => c.text).join("")}</code>
         </pre>
       )
-    case "horizontalRule":
+    case NodeType.HorizontalRule:
       return <hr />
-    case "hardBreak":
+    case NodeType.HardBreak:
       return <br />
-    case "text":
+    case NodeType.Text:
       return text(node)
-    case "mention":
+    case NodeType.Mention:
       return <Chip node={node} kind={schema?.mentionKinds.get(String(node.attrs?.kind))} />
+    case NodeType.Table: {
+      const [head, ...body] = node.content ?? []
+      return (
+        <table>
+          {head && <thead>{nodes([head], views, schema)}</thead>}
+          {body.length > 0 && <tbody>{nodes(body, views, schema)}</tbody>}
+        </table>
+      )
+    }
+    case NodeType.TableRow:
+      return <tr>{children}</tr>
+    case NodeType.TableHeader:
+    case NodeType.TableCell: {
+      // a cell holds one paragraph; render its content without the <p>
+      const Cell = node.type === NodeType.TableHeader ? "th" : "td"
+      const align = node.attrs?.align
+      return (
+        <Cell style={typeof align === "string" ? { textAlign: align as "left" } : undefined}>
+          {nodes(node.content?.[0]?.content, views, schema)}
+        </Cell>
+      )
+    }
     default:
       if (node.content) {
         return <div data-herald-block={node.type}>{children}</div>
@@ -71,19 +93,19 @@ function text(node: HeraldNode): ReactNode {
   let out: ReactNode = node.text
   for (const mark of [...(node.marks ?? [])].reverse()) {
     switch (mark.type) {
-      case "bold":
+      case MarkType.Bold:
         out = <strong>{out}</strong>
         break
-      case "italic":
+      case MarkType.Italic:
         out = <em>{out}</em>
         break
-      case "strike":
+      case MarkType.Strike:
         out = <s>{out}</s>
         break
-      case "code":
+      case MarkType.Code:
         out = <code>{out}</code>
         break
-      case "link": {
+      case MarkType.Link: {
         const href = safeHref(mark.attrs?.href)
         out = href ? (
           <a href={href} target="_blank" rel="noreferrer">

@@ -24,39 +24,43 @@ export interface BlockView {
 }
 
 /**
- * The parts of the editor a UI layer can style. An adapter puts `classes[key]` on each part, or `herald-<key>`
+ * The parts of the editor a UI layer can style. An adapter puts `classes[part]` on each part, or `herald-<part>`
  * when the UI layer gives none.
  */
-export type EditorClassKey =
-  | "h1"
-  | "h2"
-  | "h3"
-  | "h4"
-  | "h5"
-  | "h6"
-  | "bold"
-  | "italic"
-  | "strike"
-  | "code"
-  | "link"
-  | "syntax"
-  | "list-mark"
-  | "quote"
-  | "code-block"
-  | "hr"
-  | "directive"
-  | "directive-open"
-  | "directive-close"
-  | "directive-title"
-  | "drag-handle"
-  | "drop-line"
-  | "drag-ghost"
+export const EditorPart = {
+  H1: "h1",
+  H2: "h2",
+  H3: "h3",
+  H4: "h4",
+  H5: "h5",
+  H6: "h6",
+  Bold: "bold",
+  Italic: "italic",
+  Strike: "strike",
+  Code: "code",
+  Link: "link",
+  Syntax: "syntax",
+  ListMark: "list-mark",
+  Quote: "quote",
+  CodeBlock: "code-block",
+  Hr: "hr",
+  Directive: "directive",
+  DirectiveOpen: "directive-open",
+  DirectiveClose: "directive-close",
+  DirectiveTitle: "directive-title",
+  DragHandle: "drag-handle",
+  DropLine: "drop-line",
+  DragGhost: "drag-ghost",
+  /** A table's lines while its markdown source is shown for editing. */
+  Table: "table",
+} as const
+export type EditorPart = (typeof EditorPart)[keyof typeof EditorPart]
 
-export type EditorClasses = Partial<Record<EditorClassKey, string>>
+export type EditorClasses = Partial<Record<EditorPart, string>>
 
 /** What the editor-agnostic UI layer gives an adapter when mounting it. */
 export interface AdapterHooks {
-  /** Class names for the editor's own parts; see EditorClassKey. */
+  /** Class names for the editor's own parts; see EditorPart. */
   classes?: EditorClasses
   /** Trigger strings to watch for, e.g. ["@", "/"]. */
   triggers: string[]
@@ -69,6 +73,8 @@ export interface AdapterHooks {
   renderInline(node: HeraldNode, el: HTMLElement): () => void
   /** Draws a block atom (inputs, output shape) into `el`. Call `update` to write new attrs back. */
   renderBlock(node: HeraldNode, el: HTMLElement, update: (node: HeraldNode) => void): BlockView
+  /** Converts pasted clipboard data into nodes to insert, or null for the editor's own paste. */
+  onPaste?(data: { getData(mime: string): string }): HeraldNode[] | null
 }
 
 /** One editor engine. CodeMirror ships first; a ProseMirror adapter implements the same interface. */

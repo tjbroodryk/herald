@@ -1,0 +1,14 @@
+{
+  "name": "@herald/shadcn",
+  "private": true,
+  "description": "Source of the Herald shadcn registry. Not published to npm: `shadcn build` turns registry.json into JSON served from the docs site.",
+  "type": "module",
+  "scripts": {
+    "build": "shadcn build registry.json --output ../../site/r"
+  },
+  "dependencies": {
+    "@herald/agent": "workspace:*",
+    "@herald/core": "workspace:*",
+    "@herald/react": "workspace:*"
+  }
+}
